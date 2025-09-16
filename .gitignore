@@ -1,0 +1,41 @@
+# --- Python / venv ---
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- macOS / Editor ---
+.DS_Store
+.vscode/
+.idea/
+
+# --- Env / Secrets ---
+.env
+.env.*
+!.env.example   # falls du später eine Beispiel-Env committen willst
+
+# --- Logs ---
+*.log
+app/backend/logs/*
+!app/backend/logs/.gitkeep
+
+# --- Docker/Fuseki Persistenz ---
+infra/fuseki/*
+!infra/fuseki/.gitkeep
+# Falls du deine shiro.ini NICHT commiten willst (empfohlen):
+infra/fuseki/shiro.ini
+
+# --- Vendor (Prof-Daten) ---
+vendor/
+
+# --- Node (für späteres Frontend) ---
+node_modules/
+dist/
+build/
