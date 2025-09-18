@@ -64,3 +64,19 @@ pip install -r requirements.txt
 
 starten:
 uvicorn app.backend.main:app --reload
+
+### Zum Starten von Docker Container wenn die Daten da sind:
+
+cd ~/Documents/Bachelorarbeit-Programmierung/nl2sparql/infra
+docker compose up -d
+docker compose ps # STATUS should be "Up"
+curl -i http://localhost:3030/$/server # -> 401 (ohne Login ist ok)
+docker compose down
+admin admin ist der login
+
+### Zum Starten von Python:
+
+cd ~/Documents/Bachelorarbeit-Programmierung/nl2sparql
+source .venv/bin/activate
+uvicorn app.backend.main:app --reload
+muss man neues terminal aufmachen
