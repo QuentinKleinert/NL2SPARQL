@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+import re
 from uuid import uuid4
 from time import time
 from typing import Optional
@@ -8,14 +9,28 @@ from app.backend.services import sparql
 from app.backend.services.validator import validate as validate_sparql
 from app.backend.services.explain import explain_update
 
+from app.backend.services.llm import generate_sparql_with_guardrails
+from app.backend.config import get_settings
+
 router = APIRouter(prefix="/nl2sparql", tags=["nl2sparql"])
 
 VOC = "http://meta-pfarrerbuch.evangelische-archive.de/vocabulary#"
 PREFIX = f"PREFIX voc:<{VOC}>\n"
 
+
+
+
+class GenerateReq(BaseModel):
+    text: str
+    intent: Optional[str] = None
+class SelectReq(BaseModel):
+    sparql: str
+
 # --- In-Memory Bestätigungs-Store (einfach, volatil) ---
 _PENDING: dict[str, dict] = {}
 _TOKEN_TTL = 600  # Sekunden
+
+_RE_PH_LITERAL = re.compile(r'"(PH\d+)"')
 
 def _new_token(payload: dict) -> str:
     tok = str(uuid4())
@@ -29,6 +44,10 @@ def _consume_token(tok: str) -> dict | None:
     if time() - item["created"] > _TOKEN_TTL:
         return None
     return item
+
+def _rehydrate_placeholders(q: str, ph: dict) -> str:
+    # "PH1" -> '"Anna"' (mit Anführungszeichen), wie im anonymize_text gespeichert
+    return _RE_PH_LITERAL.sub(lambda m: ph.get(m.group(1), m.group(0)), q)
 
 # ----------------- Draft (bereits vorhanden) -----------------
 class DraftReq(BaseModel):
@@ -108,6 +127,37 @@ def explain(req: ExplainReq):
 class PreviewReq(BaseModel):
     sparql: str
 
+def _ensure_changes_graph(update_q: str) -> str:
+    g = get_settings().changes_graph
+
+    # INSERT DATA { ... } -> INSERT DATA { GRAPH <g> { ... } }
+    m = re.search(r'INSERT\s+DATA\s*{(.*)}\s*$', update_q, flags=re.IGNORECASE | re.DOTALL)
+    if m and "GRAPH" not in m.group(1).upper():
+        body = m.group(1).strip()
+        return re.sub(
+            r'INSERT\s+DATA\s*{.*}\s*$',
+            f'INSERT DATA {{ GRAPH <{g}> {{\n{body}\n}} }}',
+            update_q,
+            flags=re.IGNORECASE | re.DOTALL
+        )
+
+    # DELETE DATA { ... } -> DELETE DATA { GRAPH <g> { ... } }
+    m = re.search(r'DELETE\s+DATA\s*{(.*)}\s*$', update_q, flags=re.IGNORECASE | re.DOTALL)
+    if m and "GRAPH" not in m.group(1).upper():
+        body = m.group(1).strip()
+        return re.sub(
+            r'DELETE\s+DATA\s*{.*}\s*$',
+            f'DELETE DATA {{ GRAPH <{g}> {{\n{body}\n}} }}',
+            update_q,
+            flags=re.IGNORECASE | re.DOTALL
+        )
+
+    # DELETE/INSERT/WHERE -> WITH <g> prefixen (falls nicht vorhanden)
+    if re.search(r'\b(DELETE|INSERT)\b.*\bWHERE\b', update_q, flags=re.IGNORECASE) and "WITH " not in update_q.upper():
+        return f'WITH <{g}>\n{update_q}'
+
+    return update_q
+
 @router.post("/preview")
 def preview(req: PreviewReq):
     v = validate_sparql(req.sparql)
@@ -124,21 +174,46 @@ def execute(req: ExecuteReq):
     payload = _consume_token(req.confirm_token)
     if not payload:
         raise HTTPException(status_code=400, detail="Ungültiger oder abgelaufener Bestätigungs-Token.")
-    sparql_text = payload["sparql"]
+
+    sparql_text = payload["sparql"]                 # anonymisierte Fassung (PH1/PH2)
     v = payload["validation"]
     e = payload["explain"]
+    placeholders = payload.get("placeholders", {})
 
-    # Undo-Heuristik für einfache Fälle
-    undo = _make_undo(sparql_text)
+    if not _is_update_query(sparql_text):
+        raise HTTPException(
+            status_code=400,
+            detail="Dies ist keine Update-Query (INSERT/DELETE/UPDATE). Bitte über /nl2sparql/select ausführen."
+        )
 
-    # Ausführen
+    # 1) rehydrieren
+    sparql_text_exec = _rehydrate_placeholders(sparql_text, placeholders) if placeholders else sparql_text
+    # 2) Graph-Schutz
+    sparql_text_exec = _ensure_changes_graph(sparql_text_exec)
+    # 3) Undo an der tatsächlich ausgeführten Query ausrichten
+    undo = _make_undo(sparql_text_exec)
+
     try:
-        sparql.query_update(sparql_text)
-        _log_change(status="applied", sparql_text=sparql_text, validation=v, explain=e, undo_sparql=undo)
+        sparql.query_update(sparql_text_exec)
+        _log_change(
+            status="applied",
+            sparql_text=sparql_text,   # anonymisierte Fassung loggen (PII-schonend)
+            validation=v,
+            explain=e,
+            undo_sparql=undo
+        )
         return {"ok": True, "message": "Änderung ausgeführt.", "undo_sparql": undo}
     except Exception as ex:
-        _log_change(status="failed", sparql_text=sparql_text, validation=v, explain=e, undo_sparql=undo, error=str(ex))
+        _log_change(
+            status="failed",
+            sparql_text=sparql_text,
+            validation=v,
+            explain=e,
+            undo_sparql=undo,
+            error=str(ex)
+        )
         raise HTTPException(status_code=400, detail=f"Ausführung fehlgeschlagen: {ex}")
+
 
 # ----------------- Undo Helper & Logging -----------------
 import os, json, datetime, re
@@ -212,3 +287,49 @@ def undo(req: UndoReq):
             error=str(ex)
         )
         raise HTTPException(status_code=400, detail=f"Undo fehlgeschlagen: {ex}")
+@router.post("/generate")
+def generate(req: GenerateReq):
+    out = generate_sparql_with_guardrails(req.text, intent_hint=req.intent)
+    if not out.get("ok"):
+        return {
+            "ok": False,
+            "reason": out.get("reason"),
+            "sparql": out.get("sparql"),
+            "validation": out.get("validation"),
+        }
+
+    sparql_text = out["sparql"]
+    validation  = out["validation"]
+    e = explain_update(sparql_text)
+
+    token = _new_token({
+    "sparql": sparql_text,
+    "validation": validation,
+    "explain": e,
+    "placeholders": out.get("placeholders", {})
+})
+
+
+    return {
+        "ok": True,
+        "model": get_settings().llm_model,   # für Nachvollziehbarkeit
+        "sparql": sparql_text,
+        "validation": validation,
+        "explain": e,
+        "confirm_token": token,
+        "ttl_seconds": _TOKEN_TTL,
+        "attempts": out.get("attempts", 1),
+    }
+    
+def _is_update_query(q: str) -> bool:
+    U = (q or "").upper()
+    # Wir erlauben nur echte Update-Statements:
+    return any(k in U for k in ("INSERT", "DELETE", "UPDATE"))
+
+@router.post("/select")
+def run_select(req: SelectReq):
+    try:
+        data = sparql.query_select(req.sparql)
+        return {"ok": True, "results": data}
+    except Exception as ex:
+        raise HTTPException(status_code=400, detail=f"SELECT fehlgeschlagen: {ex}")
