@@ -1,16 +1,29 @@
-from pydantic import BaseModel
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 from functools import lru_cache
-import os
-from dotenv import load_dotenv
 
-load_dotenv()
+class Settings(BaseSettings):
+    # Fuseki
+    fuseki_base_url: str = Field(..., alias="FUSEKI_BASE_URL")
+    fuseki_dataset:  str = Field(..., alias="FUSEKI_DATASET")
+    fuseki_user:     str = Field(..., alias="FUSEKI_USER")
+    fuseki_password: str = Field(..., alias="FUSEKI_PASSWORD")
 
-class Settings(BaseModel):
-    fuseki_base_url: str = os.getenv("FUSEKI_BASE_URL", "http://localhost:3030")
-    fuseki_dataset: str  = os.getenv("FUSEKI_DATASET", "combined")
-    fuseki_user: str     = os.getenv("FUSEKI_USER", "admin")
-    fuseki_password: str = os.getenv("FUSEKI_PASSWORD", "admin")
+    # LLM
+    openai_api_key:        str = Field(..., alias="OPENAI_API_KEY")
+    llm_model:             str = Field("gpt-4.1-mini", alias="LLM_MODEL")
+    llm_temperature:       float = Field(0.2, alias="LLM_TEMPERATURE")
+    llm_max_output_tokens: int = Field(1200, alias="LLM_MAX_OUTPUT_TOKENS")
 
-@lru_cache
+    changes_graph: str = Field("urn:nl2sparql:changes", alias="CHANGES_GRAPH")
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",   
+    )
+
+@lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()
