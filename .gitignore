@@ -39,3 +39,8 @@ vendor/
 node_modules/
 dist/
 build/
+
+# --- UI build ---
+ui/node_modules/
+ui/dist/
+ui/.DS_Store

@@ -1,0 +1,465 @@
+import { useEffect, useMemo, useState } from "react";
+import type { AxiosError } from "axios";
+import {
+  getBackendBase,
+  setBackendBase,
+  health,
+  getTerms,
+  recentLogs,
+  generateNL,
+  validateQuery,
+  explainQuery,
+  previewQuery,
+  executeToken,
+  runSelect,
+  undoChange,
+} from "./lib/api";
+import type {
+  OntologyTerms,
+  LogsRecent,
+  SPARQLSelectJSON,
+  ValidationResult,
+  ExplainResult,
+  LogRecord,
+} from "./types";
+
+function Pill({ ok }: { ok: boolean }) {
+  return (
+    <span
+      className={`inline-block w-2.5 h-2.5 rounded-full ${
+        ok ? "bg-emerald-400" : "bg-slate-500"
+      }`}
+      title={ok ? "Backend erreichbar" : "Backend unbekannt"}
+    />
+  );
+}
+
+export default function App() {
+  // Backend base
+  const [base, setBase] = useState<string>(getBackendBase());
+  const [pingOK, setPingOK] = useState<boolean>(false);
+
+  // NL input / generated / editor
+  const [nl, setNl] = useState<string>(
+    'Füge einen neuen Pfarrer mit Vorname "Max" und Nachname "Mustermann" hinzu.'
+  );
+  const [generated, setGenerated] = useState<string>("");
+  const [editor, setEditor] = useState<string>(
+    "PREFIX voc:<http://meta-pfarrerbuch.evangelische-archive.de/vocabulary#>\n# SELECT ... / INSERT DATA ..."
+  );
+
+  // preview/execute
+  const [confirmToken, setConfirmToken] = useState<string | null>(null);
+  const [tokenExpiresAt, setTokenExpiresAt] = useState<number | null>(null);
+
+  // results
+  const [validation, setValidation] = useState<ValidationResult | null>(null);
+  const [explanation, setExplanation] = useState<ExplainResult | null>(null);
+  const [selectRes, setSelectRes] = useState<SPARQLSelectJSON | null>(null);
+
+  // terms & logs
+  const [terms, setTerms] = useState<OntologyTerms | null>(null);
+  const [logs, setLogs] = useState<LogsRecent["items"]>([]);
+
+  // messages
+  const [message, setMessage] = useState<{
+    text: string;
+    kind: "success" | "error" | "info";
+  } | null>(null);
+
+  // helper
+  const show = (text: string, kind: "success" | "error" | "info" = "info") => {
+    setMessage({ text, kind });
+    // auto-hide
+    setTimeout(() => setMessage(null), 2500);
+  };
+
+  // initial load + polling (simple)
+  useEffect(() => {
+    (async () => {
+      try {
+        setPingOK((await health()).ok);
+      } catch {
+        setPingOK(false);
+      }
+      try {
+        setTerms(await getTerms());
+      } catch {}
+      try {
+        setLogs((await recentLogs(10)).items);
+      } catch {}
+    })();
+    const t = setInterval(async () => {
+      try {
+        setLogs((await recentLogs(10)).items);
+      } catch {}
+    }, 5000);
+    return () => clearInterval(t);
+  }, [base]);
+
+  // base url input change
+  const onChangeBase = (s: string) => {
+    setBase(s);
+    setBackendBase(s);
+  };
+
+  // Generate → sets generated + editor, stores token (ready to execute)
+  const onGenerate = async () => {
+    try {
+      const r = await generateNL(nl);
+      setGenerated(r.sparql);
+      setEditor(r.sparql);
+      setValidation(r.validation);
+      setExplanation(r.explain);
+      setConfirmToken(r.confirm_token);
+      setTokenExpiresAt(Date.now() + r.ttl_seconds * 1000);
+      show(`Generate ok (${r.model}), Token bereit.`, "success");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      show(`Generate-Fehler: ${msg}`, "error");
+    }
+  };
+
+  // Validate
+  const onValidate = async () => {
+    try {
+      setValidation(await validateQuery(editor));
+      show("Validate ok", "success");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      show(`Validate-Fehler: ${msg}`, "error");
+    }
+  };
+
+  // Explain
+  const onExplain = async () => {
+    try {
+      setExplanation(await explainQuery(editor));
+      show("Explain ok", "success");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      show(`Explain-Fehler: ${msg}`, "error");
+    }
+  };
+
+  // Preview → new token
+  const onPreview = async () => {
+    try {
+      const r = await previewQuery(editor);
+      setValidation(r.validation);
+      setExplanation(r.explain);
+      setConfirmToken(r.confirm_token);
+      setTokenExpiresAt(Date.now() + r.ttl_seconds * 1000);
+      show("Preview ok – Token bereit zum Ausführen", "success");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      show(`Preview-Fehler: ${msg}`, "error");
+    }
+  };
+
+  // Execute (uses last token)
+  const onExecute = async () => {
+    try {
+      if (!confirmToken || !tokenExpiresAt || Date.now() > tokenExpiresAt) {
+        show(
+          "Kein gültiger Token. Bitte zuerst Preview oder Generate.",
+          "error"
+        );
+        return;
+      }
+      const r = await executeToken(confirmToken);
+      show(r.message || "Execute ok", "success");
+      // nach erfolgreichem Execute Token verwerfen
+      setConfirmToken(null);
+      setTokenExpiresAt(null);
+      // logs werden durch Polling aktualisiert
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      show(`Execute-Fehler: ${msg}`, "error");
+    }
+  };
+
+  // Run SELECT
+  const onRunSelect = async () => {
+    const sparqlText = editor;
+
+    const U = sparqlText.trim().toUpperCase();
+    if (!(U.startsWith("SELECT") || U.startsWith("ASK"))) {
+      show(
+        'Bitte einen gültigen SELECT/ASK ins Editor-Feld schreiben (Updates mit "Execute" ausführen).',
+        "info"
+      );
+      return;
+    }
+
+    try {
+      const { ok, results } = await runSelect(sparqlText);
+      if (ok) {
+        setSelectRes(results);
+        show("SELECT ausgeführt.", "success");
+      } else {
+        setSelectRes(null);
+        show("SELECT fehlgeschlagen (ok=false).", "error");
+      }
+    } catch (e: unknown) {
+      const ax = e as AxiosError<{ detail?: string; message?: string }>;
+      const detail =
+        ax.response?.data?.detail ?? ax.response?.data?.message ?? ax.message;
+      setSelectRes(null);
+      show(`SELECT-Fehler: ${detail}`, "error");
+    }
+  };
+
+  const tokenLeft = useMemo(() => {
+    if (!tokenExpiresAt) return 0;
+    return Math.max(0, Math.floor((tokenExpiresAt - Date.now()) / 1000));
+  }, [tokenExpiresAt]);
+
+  const onUndoLog = async (rec: LogRecord) => {
+    const canUndo =
+      rec.status?.toLowerCase() === "applied" && !!rec.undo_sparql;
+
+    if (!canUndo) {
+      show("Für diesen Eintrag gibt es kein automatisches Undo.", "info");
+      return;
+    }
+    if (!confirm("Diese Änderung wirklich rückgängig machen?")) return;
+
+    try {
+      await undoChange({ log_record: rec });
+      show("Undo ausgeführt.", "success");
+      // Logs sofort aktualisieren (zusätzlich zum Polling)
+      setLogs((await recentLogs(10)).items);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      show(`Undo-Fehler: ${msg}`, "error");
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-900 text-slate-100">
+      {/* Top Bar */}
+      <div className="sticky top-0 z-10 bg-slate-900/80 backdrop-blur border-b border-slate-800">
+        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-3">
+          <h1 className="text-2xl font-bold tracking-wide">NL2SPARQL UI</h1>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-sm">Backend:</span>
+            <input
+              value={base}
+              onChange={(e) => onChangeBase(e.target.value)}
+              className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm w-[200px]"
+            />
+            <button
+              onClick={async () => {
+                try {
+                  setPingOK((await health()).ok);
+                  show("Ping ok", "success");
+                } catch {
+                  setPingOK(false);
+                  show("Ping fehlgeschlagen", "error");
+                }
+              }}
+              className="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm"
+            >
+              Ping{" "}
+              <span className="ml-2">
+                <Pill ok={pingOK} />
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-5xl mx-auto px-4 py-6 space-y-8">
+        {/* NL Input */}
+        <section>
+          <h2 className="text-lg font-semibold mb-2">
+            Natürlichsprachliche Anfrage
+          </h2>
+          <textarea
+            value={nl}
+            onChange={(e) => setNl(e.target.value)}
+            className="w-full h-20 md:h-24 bg-slate-800 border border-slate-700 rounded p-2 font-mono text-sm"
+            placeholder='z.B. "Füge einen neuen Pfarrer mit Vorname Max und Nachname Mustermann hinzu."'
+          />
+          <div className="mt-2">
+            <button
+              onClick={onGenerate}
+              className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-sm"
+            >
+              Generate
+            </button>
+          </div>
+        </section>
+
+        {/* Generated */}
+        <section>
+          <h2 className="text-lg font-semibold mb-2">Generated SPARQL</h2>
+          <pre className="w-full h-48 overflow-auto bg-slate-800 border border-slate-700 rounded p-3 text-xs whitespace-pre-wrap">
+            {generated || "–"}
+          </pre>
+        </section>
+
+        {/* Editor */}
+        <section>
+          <h2 className="text-lg font-semibold mb-2">SPARQL Editor</h2>
+          <textarea
+            value={editor}
+            onChange={(e) => {
+              setEditor(e.target.value);
+              // Editor geändert → Token ungültig machen (bewusste UX)
+              setConfirmToken(null);
+              setTokenExpiresAt(null);
+            }}
+            className="min-h-[260px] md:min-h-[320px] w-full bg-slate-800 border border-slate-700 rounded p-3 font-mono text-xs"
+            placeholder="PREFIX voc:<http://meta-...>\nSELECT ... / INSERT DATA ..."
+          />
+          <div className="p-3 text-xs whitespace-pre-wrap overflow-auto max-h-80">
+            <button
+              onClick={onValidate}
+              className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm"
+            >
+              Validate
+            </button>
+            <button
+              onClick={onExplain}
+              className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm"
+            >
+              Explain
+            </button>
+            <button
+              onClick={onPreview}
+              className="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-sm text-white"
+            >
+              Preview
+            </button>
+            <button
+              onClick={onExecute}
+              className="px-3 py-1.5 rounded bg-rose-600 hover:bg-rose-500 text-sm text-white"
+            >
+              Execute
+            </button>
+            <button
+              onClick={onRunSelect}
+              className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm"
+            >
+              Run SELECT
+            </button>
+          </div>
+
+          {/* Preview / Token state */}
+          {confirmToken && tokenExpiresAt && (
+            <div className="mt-2 text-sm text-emerald-300">
+              Token bereit. Bitte innerhalb von {tokenLeft}s ausführen.
+            </div>
+          )}
+        </section>
+
+        {/* Ergebnisse */}
+        <section>
+          <h2 className="text-lg font-semibold mb-2">Ergebnis</h2>
+
+          {message && (
+            <div
+              className={`mb-3 rounded px-3 py-2 text-sm ${
+                message.kind === "success"
+                  ? "bg-emerald-900/40 text-emerald-200 border border-emerald-700"
+                  : message.kind === "error"
+                    ? "bg-rose-900/40 text-rose-200 border border-rose-700"
+                    : "bg-slate-800 text-slate-200 border border-slate-700"
+              }`}
+            >
+              {message.text}
+            </div>
+          )}
+
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-3">
+              <div className="rounded border border-slate-700">
+                <div className="px-3 py-2 text-sm font-medium border-b border-slate-700 bg-slate-800">
+                  Ontology (Auszug)
+                </div>
+                <div className="p-3 text-xs text-slate-300 space-y-1">
+                  <div>Klassen: {terms?.classes.length ?? 0}</div>
+                  <div>Properties: {terms?.properties.length ?? 0}</div>
+                </div>
+              </div>
+
+              <details className="rounded border border-slate-700" open>
+                <summary className="px-3 py-2 text-sm font-medium bg-slate-800 cursor-pointer">
+                  Recent Logs (10)
+                </summary>
+                <div className="p-2 space-y-2">
+                  {logs.map((x, i) => {
+                    const canUndo =
+                      x.status?.toLowerCase() === "applied" && !!x.undo_sparql;
+                    return (
+                      <div key={i} className="rounded border border-slate-800">
+                        <div className="px-2 py-1.5 flex items-center justify-between text-[11px] bg-slate-900 border-b border-slate-800">
+                          <div className="truncate">
+                            {x.ts} — {x.status?.toUpperCase()}
+                          </div>
+                          <button
+                            onClick={() => onUndoLog(x)}
+                            disabled={!canUndo}
+                            className={`px-2 py-0.5 rounded text-[11px] ${
+                              canUndo
+                                ? "bg-rose-600 hover:bg-rose-500 text-white"
+                                : "bg-slate-700 text-slate-400 cursor-not-allowed"
+                            }`}
+                            title={
+                              canUndo
+                                ? "Änderung rückgängig machen"
+                                : "Kein Undo verfügbar"
+                            }
+                          >
+                            Undo
+                          </button>
+                        </div>
+                        <pre className="text-[11px] p-2 overflow-auto max-h-40 whitespace-pre-wrap">
+                          {`${x.sparql}
+`}
+                        </pre>
+                      </div>
+                    );
+                  })}
+                </div>
+              </details>
+            </div>
+
+            <div className="space-y-3">
+              <div className="rounded border border-slate-700">
+                <div className="px-3 py-2 text-sm font-medium border-b border-slate-700 bg-slate-800">
+                  Validation
+                </div>
+                <div className="p-3 text-xs whitespace-pre-wrap">
+                  {validation ? JSON.stringify(validation, null, 2) : "—"}
+                </div>
+              </div>
+
+              <div className="rounded border border-slate-700">
+                <div className="px-3 py-2 text-sm font-medium border-b border-slate-700 bg-slate-800">
+                  Explain
+                </div>
+                <div className="p-3 text-xs whitespace-pre-wrap">
+                  {explanation ? JSON.stringify(explanation, null, 2) : "—"}
+                </div>
+              </div>
+
+              <div className="rounded border border-slate-700">
+                <div className="px-3 py-2 text-sm font-medium border-b border-slate-700 bg-slate-800">
+                  SELECT Result
+                </div>
+                <div className="p-3 text-xs whitespace-pre-wrap overflow-auto max-h-56">
+                  {selectRes
+                    ? JSON.stringify(selectRes, null, 2)
+                    : "Noch kein SELECT ausgeführt."}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
