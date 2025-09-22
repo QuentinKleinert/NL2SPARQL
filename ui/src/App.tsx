@@ -314,7 +314,7 @@ export default function App() {
             className="min-h-[260px] md:min-h-[320px] w-full bg-slate-800 border border-slate-700 rounded p-3 font-mono text-xs"
             placeholder="PREFIX voc:<http://meta-...>\nSELECT ... / INSERT DATA ..."
           />
-          <div className="p-3 text-xs whitespace-pre-wrap overflow-auto max-h-80">
+          <div className="mt-3 flex flex-wrap gap-2">
             <button
               onClick={onValidate}
               className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm"
