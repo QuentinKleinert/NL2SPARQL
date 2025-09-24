@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import type { AxiosError } from "axios";
 import {
   getBackendBase,
@@ -13,6 +13,7 @@ import {
   executeToken,
   runSelect,
   undoChange,
+  getPerf,
 } from "./lib/api";
 import type {
   OntologyTerms,
@@ -21,7 +22,11 @@ import type {
   ValidationResult,
   ExplainResult,
   LogRecord,
+  PerfMetrics,
 } from "./types";
+import Button from "./components/Button";
+import SparqlTable from "./components/SparqlTable";
+import CopyButton from "./components/CopyButton";
 
 function Pill({ ok }: { ok: boolean }) {
   return (
@@ -61,18 +66,68 @@ export default function App() {
   const [terms, setTerms] = useState<OntologyTerms | null>(null);
   const [logs, setLogs] = useState<LogsRecent["items"]>([]);
 
+  const tokenExpired = tokenExpiresAt != null && Date.now() > tokenExpiresAt;
+
+  const canExecute = !!confirmToken && tokenExpiresAt != null && !tokenExpired;
+
   // messages
   const [message, setMessage] = useState<{
     text: string;
     kind: "success" | "error" | "info";
   } | null>(null);
 
+  const [perf, setPerf] = useState<PerfMetrics | null>(null);
+
+  const templates = [
+    {
+      label: "SELECT: 10 Pfarrer:innen",
+      kind: "SELECT",
+      text:
+        "PREFIX voc:<http://meta-pfarrerbuch.evangelische-archive.de/vocabulary#>\n" +
+        "SELECT ?person ?vor ?nach WHERE {\n" +
+        "  ?person a voc:Pfarrer-in ;\n" +
+        "          voc:vorname ?vor ;\n" +
+        "          voc:nachname ?nach .\n" +
+        "} LIMIT 10\n",
+    },
+    {
+      label: "INSERT-Beispiel (Anna Muster)",
+      kind: "INSERT",
+      text:
+        "PREFIX voc:<http://meta-pfarrerbuch.evangelische-archive.de/vocabulary#>\n" +
+        "INSERT DATA { GRAPH <urn:nl2sparql:changes> {\n" +
+        "  <urn:example:person:NEW> a voc:Pfarrer-in ;\n" +
+        '      voc:vorname "Anna" ;\n' +
+        '      voc:nachname "Muster" .\n' +
+        "} }\n",
+    },
+    {
+      label: "NL: Füge Pfarrer …",
+      kind: "NL",
+      text: 'Füge einen neuen Pfarrer mit Vorname "Max" und Nachname "Mustermann" hinzu.',
+    },
+  ];
+
   // helper
+  const hideTimer = useRef<number | null>(null);
   const show = (text: string, kind: "success" | "error" | "info" = "info") => {
     setMessage({ text, kind });
-    // auto-hide
-    setTimeout(() => setMessage(null), 2500);
+    if (hideTimer.current) window.clearTimeout(hideTimer.current);
+    hideTimer.current = window.setTimeout(() => setMessage(null), 2500);
   };
+  useEffect(
+    () => () => {
+      if (hideTimer.current) window.clearTimeout(hideTimer.current);
+    },
+    []
+  );
+
+  const [loadingGen, setLoadingGen] = useState(false);
+  const [loadingVal, setLoadingVal] = useState(false);
+  const [loadingExp, setLoadingExp] = useState(false);
+  const [loadingPrev, setLoadingPrev] = useState(false);
+  const [loadingExec, setLoadingExec] = useState(false);
+  const [loadingSel, setLoadingSel] = useState(false);
 
   // initial load + polling (simple)
   useEffect(() => {
@@ -97,6 +152,20 @@ export default function App() {
     return () => clearInterval(t);
   }, [base]);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        setPerf(await getPerf(60));
+      } catch {}
+    })();
+    const perfTimer = setInterval(async () => {
+      try {
+        setPerf(await getPerf(60));
+      } catch {}
+    }, 10000);
+    return () => clearInterval(perfTimer);
+  }, [base]);
+
   // base url input change
   const onChangeBase = (s: string) => {
     setBase(s);
@@ -106,6 +175,7 @@ export default function App() {
   // Generate → sets generated + editor, stores token (ready to execute)
   const onGenerate = async () => {
     try {
+      setLoadingGen(true);
       const r = await generateNL(nl);
       setGenerated(r.sparql);
       setEditor(r.sparql);
@@ -117,34 +187,45 @@ export default function App() {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       show(`Generate-Fehler: ${msg}`, "error");
+    } finally {
+      setLoadingGen(false);
     }
   };
 
   // Validate
   const onValidate = async () => {
     try {
-      setValidation(await validateQuery(editor));
+      setLoadingVal(true);
+      const v = await validateQuery(editor); // <-- wichtig: Editor-Text validieren
+      setValidation(v);
       show("Validate ok", "success");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       show(`Validate-Fehler: ${msg}`, "error");
+    } finally {
+      setLoadingVal(false);
     }
   };
 
   // Explain
   const onExplain = async () => {
     try {
-      setExplanation(await explainQuery(editor));
+      setLoadingExp(true);
+      const ex = await explainQuery(editor);
+      setExplanation(ex);
       show("Explain ok", "success");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       show(`Explain-Fehler: ${msg}`, "error");
+    } finally {
+      setLoadingExp(false);
     }
   };
 
   // Preview → new token
   const onPreview = async () => {
     try {
+      setLoadingPrev(true);
       const r = await previewQuery(editor);
       setValidation(r.validation);
       setExplanation(r.explain);
@@ -154,12 +235,15 @@ export default function App() {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       show(`Preview-Fehler: ${msg}`, "error");
+    } finally {
+      setLoadingPrev(false);
     }
   };
 
   // Execute (uses last token)
   const onExecute = async () => {
     try {
+      setLoadingExec(true);
       if (!confirmToken || !tokenExpiresAt || Date.now() > tokenExpiresAt) {
         show(
           "Kein gültiger Token. Bitte zuerst Preview oder Generate.",
@@ -167,22 +251,29 @@ export default function App() {
         );
         return;
       }
+      if (
+        !confirm(
+          `Diese Änderung jetzt ausführen?\n\nHinweis: Der Token verfällt in ${tokenLeft}s.`
+        )
+      ) {
+        return;
+      }
+
       const r = await executeToken(confirmToken);
       show(r.message || "Execute ok", "success");
-      // nach erfolgreichem Execute Token verwerfen
       setConfirmToken(null);
       setTokenExpiresAt(null);
-      // logs werden durch Polling aktualisiert
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       show(`Execute-Fehler: ${msg}`, "error");
+    } finally {
+      setLoadingExec(false);
     }
   };
 
   // Run SELECT
   const onRunSelect = async () => {
     const sparqlText = editor;
-
     const U = sparqlText.trim().toUpperCase();
     if (!(U.startsWith("SELECT") || U.startsWith("ASK"))) {
       show(
@@ -193,6 +284,7 @@ export default function App() {
     }
 
     try {
+      setLoadingSel(true);
       const { ok, results } = await runSelect(sparqlText);
       if (ok) {
         setSelectRes(results);
@@ -207,13 +299,23 @@ export default function App() {
         ax.response?.data?.detail ?? ax.response?.data?.message ?? ax.message;
       setSelectRes(null);
       show(`SELECT-Fehler: ${detail}`, "error");
+    } finally {
+      setLoadingSel(false);
     }
   };
 
+  // live countdown for token
+  const [now, setNow] = useState<number>(Date.now());
+  useEffect(() => {
+    if (!tokenExpiresAt) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [tokenExpiresAt]);
+
   const tokenLeft = useMemo(() => {
     if (!tokenExpiresAt) return 0;
-    return Math.max(0, Math.floor((tokenExpiresAt - Date.now()) / 1000));
-  }, [tokenExpiresAt]);
+    return Math.max(0, Math.floor((tokenExpiresAt - now) / 1000));
+  }, [tokenExpiresAt, now]);
 
   const onUndoLog = async (rec: LogRecord) => {
     const canUndo =
@@ -283,18 +385,24 @@ export default function App() {
             placeholder='z.B. "Füge einen neuen Pfarrer mit Vorname Max und Nachname Mustermann hinzu."'
           />
           <div className="mt-2">
-            <button
-              onClick={onGenerate}
-              className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-sm"
-            >
+            <Button onClick={onGenerate} loading={loadingGen} variant="primary">
               Generate
-            </button>
+            </Button>
           </div>
         </section>
 
+        <p className="mt-1 text-xs text-slate-400">
+          Tipp: „Generate“ erzeugt SPARQL aus natürlicher Sprache. Für Updates
+          immer erst „Preview“ (Token), dann „Execute“. SELECTs bitte mit „Run
+          SELECT“ ausführen.
+        </p>
+
         {/* Generated */}
         <section>
-          <h2 className="text-lg font-semibold mb-2">Generated SPARQL</h2>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-lg font-semibold">Generated SPARQL</h2>
+            <CopyButton getText={() => generated} />
+          </div>
           <pre className="w-full h-48 overflow-auto bg-slate-800 border border-slate-700 rounded p-3 text-xs whitespace-pre-wrap">
             {generated || "–"}
           </pre>
@@ -302,7 +410,10 @@ export default function App() {
 
         {/* Editor */}
         <section>
-          <h2 className="text-lg font-semibold mb-2">SPARQL Editor</h2>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-lg font-semibold">SPARQL Editor</h2>
+            <CopyButton getText={() => editor} />
+          </div>
           <textarea
             value={editor}
             onChange={(e) => {
@@ -315,42 +426,70 @@ export default function App() {
             placeholder="PREFIX voc:<http://meta-...>\nSELECT ... / INSERT DATA ..."
           />
           <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              onClick={onValidate}
-              className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm"
-            >
+            <Button onClick={onValidate} loading={loadingVal}>
               Validate
-            </button>
-            <button
-              onClick={onExplain}
-              className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm"
-            >
+            </Button>
+            <Button onClick={onExplain} loading={loadingExp}>
               Explain
-            </button>
-            <button
-              onClick={onPreview}
-              className="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-sm text-white"
-            >
+            </Button>
+            <Button onClick={onPreview} loading={loadingPrev} variant="primary">
               Preview
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={onExecute}
-              className="px-3 py-1.5 rounded bg-rose-600 hover:bg-rose-500 text-sm text-white"
+              loading={loadingExec}
+              variant="danger"
+              disabled={!canExecute}
+              title={
+                !confirmToken
+                  ? "Bitte erst Preview/Generate"
+                  : tokenExpiresAt == null
+                    ? "Kein Token"
+                    : tokenExpired
+                      ? "Token abgelaufen"
+                      : ""
+              }
             >
               Execute
-            </button>
-            <button
-              onClick={onRunSelect}
-              className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm"
-            >
+            </Button>
+            <Button onClick={onRunSelect} loading={loadingSel}>
               Run SELECT
-            </button>
+            </Button>
+
+            <select
+              className="px-2 py-1 border border-slate-700 bg-slate-800 rounded text-sm"
+              defaultValue=""
+              onChange={(e) => {
+                const idx = Number(e.target.value);
+                if (Number.isNaN(idx)) return;
+                const t = templates[idx];
+                if (!t) return;
+                if (t.kind === "NL") setNl(t.text);
+                else {
+                  setEditor(t.text);
+                  setConfirmToken(null);
+                  setTokenExpiresAt(null);
+                }
+                e.currentTarget.selectedIndex = 0; // zurück auf Placeholder
+              }}
+              title="Schnellvorlagen für NL/Editor"
+            >
+              <option value="" disabled>
+                — Vorlage wählen —
+              </option>
+              {templates.map((t, i) => (
+                <option key={i} value={i.toString()}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
           </div>
 
-          {/* Preview / Token state */}
           {confirmToken && tokenExpiresAt && (
-            <div className="mt-2 text-sm text-emerald-300">
-              Token bereit. Bitte innerhalb von {tokenLeft}s ausführen.
+            <div className="mt-2 text-sm">
+              <span className="px-2 py-0.5 rounded bg-emerald-900/40 text-emerald-200 border border-emerald-700">
+                Token bereit — verfällt in {tokenLeft}s
+              </span>
             </div>
           )}
         </section>
@@ -450,16 +589,74 @@ export default function App() {
                 <div className="px-3 py-2 text-sm font-medium border-b border-slate-700 bg-slate-800">
                   SELECT Result
                 </div>
-                <div className="p-3 text-xs whitespace-pre-wrap overflow-auto max-h-56">
-                  {selectRes
-                    ? JSON.stringify(selectRes, null, 2)
-                    : "Noch kein SELECT ausgeführt."}
+                <div className="p-3 text-xs whitespace-pre-wrap">
+                  {selectRes ? (
+                    <SparqlTable data={selectRes} />
+                  ) : (
+                    "Noch kein SELECT ausgeführt."
+                  )}
                 </div>
               </div>
             </div>
           </div>
         </section>
+        <div className="rounded border border-slate-700">
+          <div className="px-3 py-2 text-sm font-medium border-b border-slate-700 bg-slate-800">
+            Performance (letzte {perf?.window_minutes ?? 60} min)
+          </div>
+          <div className="p-3 text-xs space-y-2">
+            {perf ? (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded bg-slate-800 p-2 border border-slate-700">
+                    <div className="font-medium">HTTP</div>
+                    <div>n: {perf.http.n}</div>
+                    <div>p50: {perf.http.p50_ms} ms</div>
+                    <div>p95: {perf.http.p95_ms} ms</div>
+                    <div>max: {perf.http.max_ms} ms</div>
+                  </div>
+                  <div className="rounded bg-slate-800 p-2 border border-slate-700">
+                    <div className="font-medium">Fuseki SELECT</div>
+                    <div>n: {perf.fuseki.select.n}</div>
+                    <div>p50: {perf.fuseki.select.p50_ms} ms</div>
+                    <div>p95: {perf.fuseki.select.p95_ms} ms</div>
+                    <div>max: {perf.fuseki.select.max_ms} ms</div>
+                  </div>
+                  <div className="rounded bg-slate-800 p-2 border border-slate-700">
+                    <div className="font-medium">Fuseki UPDATE</div>
+                    <div>n: {perf.fuseki.update.n}</div>
+                    <div>p50: {perf.fuseki.update.p50_ms} ms</div>
+                    <div>p95: {perf.fuseki.update.p95_ms} ms</div>
+                    <div>max: {perf.fuseki.update.max_ms} ms</div>
+                  </div>
+                </div>
+
+                <details className="mt-2">
+                  <summary className="cursor-pointer">
+                    Top HTTP-Pfadaufrufe
+                  </summary>
+                  <ul className="mt-1 list-disc ml-5 space-y-0.5">
+                    {perf.top_http_paths.map((x, i) => (
+                      <li key={i}>
+                        <code>{x.path}</code> — {x.count}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              </>
+            ) : (
+              "—"
+            )}
+          </div>
+        </div>
       </div>
+      <footer className="max-w-5xl mx-auto px-4 pb-6 text-xs text-slate-400">
+        <div className="border-t border-slate-800 pt-3 flex flex-wrap items-center gap-2">
+          <span>© 2025 Quentin Kleinert — Bachelorarbeit</span>
+          <span className="hidden md:inline">·</span>
+          <span>NL2SPARQL UI</span>
+        </div>
+      </footer>
     </div>
   );
 }

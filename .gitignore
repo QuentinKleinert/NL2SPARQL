@@ -31,6 +31,8 @@ infra/fuseki/*
 !infra/fuseki/.gitkeep
 # Falls du deine shiro.ini NICHT commiten willst (empfohlen):
 infra/fuseki/shiro.ini
+docker-compose.override.yml
+infra/shiro.ini
 
 # --- Vendor (Prof-Daten) ---
 vendor/
@@ -44,3 +46,6 @@ build/
 ui/node_modules/
 ui/dist/
 ui/.DS_Store
+
+# --- Sonstiges ---
+*.swp

@@ -12,6 +12,13 @@ from app.backend.services.explain import explain_update
 from app.backend.services.llm import generate_sparql_with_guardrails
 from app.backend.config import get_settings
 
+from app.backend.services.pseudonymizer import (
+    mask_sparql_for_log,
+    mask_log_record,
+    enabled as pseudo_enabled,
+)
+
+
 router = APIRouter(prefix="/nl2sparql", tags=["nl2sparql"])
 
 VOC = "http://meta-pfarrerbuch.evangelische-archive.de/vocabulary#"
@@ -48,6 +55,10 @@ def _consume_token(tok: str) -> dict | None:
 def _rehydrate_placeholders(q: str, ph: dict) -> str:
     # "PH1" -> '"Anna"' (mit Anführungszeichen), wie im anonymize_text gespeichert
     return _RE_PH_LITERAL.sub(lambda m: ph.get(m.group(1), m.group(0)), q)
+
+def _is_update_query(q: str) -> bool:
+    U = (q or "").upper()
+    return any(k in U for k in ("INSERT", "DELETE", "UPDATE"))
 
 # ----------------- Draft (bereits vorhanden) -----------------
 class DraftReq(BaseModel):
@@ -160,9 +171,12 @@ def _ensure_changes_graph(update_q: str) -> str:
 
 @router.post("/preview")
 def preview(req: PreviewReq):
-    v = validate_sparql(req.sparql)
-    e = explain_update(req.sparql)
-    token = _new_token({"sparql": req.sparql, "validation": v, "explain": e})
+    q = req.sparql
+    if _is_update_query(q):
+        q = _ensure_changes_graph(q)   # <--- hinzu
+    v = validate_sparql(q)
+    e = explain_update(q)
+    token = _new_token({"sparql": q, "validation": v, "explain": e})
     return {"validation": v, "explain": e, "confirm_token": token, "ttl_seconds": _TOKEN_TTL}
 
 # ----------------- Execute (mit Token) -----------------
@@ -175,41 +189,47 @@ def execute(req: ExecuteReq):
     if not payload:
         raise HTTPException(status_code=400, detail="Ungültiger oder abgelaufener Bestätigungs-Token.")
 
-    sparql_text = payload["sparql"]                 # anonymisierte Fassung (PH1/PH2)
-    v = payload["validation"]
-    e = payload["explain"]
-    placeholders = payload.get("placeholders", {})
+    sparql_text = payload["sparql"]                    # anonymisierte Fassung (kann PHx enthalten)
+    placeholders = payload.get("placeholders", {})     # aus /generate o. /preview
+    sparql_text_exec = _rehydrate_placeholders(sparql_text, placeholders) if placeholders else sparql_text
 
-    if not _is_update_query(sparql_text):
+    # Nur Updates erlauben
+    if not _is_update_query(sparql_text_exec):
         raise HTTPException(
             status_code=400,
             detail="Dies ist keine Update-Query (INSERT/DELETE/UPDATE). Bitte über /nl2sparql/select ausführen."
         )
 
-    # 1) rehydrieren
-    sparql_text_exec = _rehydrate_placeholders(sparql_text, placeholders) if placeholders else sparql_text
-    # 2) Graph-Schutz
-    sparql_text_exec = _ensure_changes_graph(sparql_text_exec)
-    # 3) Undo an der tatsächlich ausgeführten Query ausrichten
+    v = payload["validation"]
+    e = payload["explain"]
+
+    # Undo vorbereiten (zur tatsächlich ausgeführten Query passend)
     undo = _make_undo(sparql_text_exec)
 
+    # Ausführen + Logging
     try:
         sparql.query_update(sparql_text_exec)
+        log_sparql = mask_sparql_for_log(sparql_text) if pseudo_enabled() else sparql_text
+        log_undo   = mask_sparql_for_log(undo) if (pseudo_enabled() and undo) else undo
+      
+        
         _log_change(
             status="applied",
-            sparql_text=sparql_text,   # anonymisierte Fassung loggen (PII-schonend)
+            sparql_text=log_sparql,      
             validation=v,
             explain=e,
-            undo_sparql=undo
+            undo_sparql=log_undo,
         )
         return {"ok": True, "message": "Änderung ausgeführt.", "undo_sparql": undo}
     except Exception as ex:
+        log_sparql = mask_sparql_for_log(sparql_text) if pseudo_enabled() else sparql_text
+        log_undo   = mask_sparql_for_log(undo) if (pseudo_enabled() and undo) else undo
         _log_change(
             status="failed",
-            sparql_text=sparql_text,
+            sparql_text=log_sparql,
             validation=v,
             explain=e,
-            undo_sparql=undo,
+            undo_sparql=log_undo,
             error=str(ex)
         )
         raise HTTPException(status_code=400, detail=f"Ausführung fehlgeschlagen: {ex}")
@@ -253,10 +273,12 @@ def _log_change(status: str, sparql_text: str, validation: dict, explain: dict, 
         "validation": validation,
         "explain": explain,
         "undo_sparql": undo_sparql,
-        "error": error
+        "error": error,
     }
+    rec = mask_log_record(rec)  # <--- NEU: sicherheitshalber nochmals maskieren
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
 
 class UndoReq(BaseModel):
     undo_sparql: Optional[str] = None
@@ -269,50 +291,48 @@ def undo(req: UndoReq):
         raise HTTPException(status_code=400, detail="Kein undo_sparql angegeben.")
     try:
         sparql.query_update(undo_q)
+
+        log_q = mask_sparql_for_log(undo_q) if pseudo_enabled() else undo_q
+
         _log_change(
             status="undo_applied",
-            sparql_text=undo_q,
-            validation={"ok": True, "errors": [], "warnings": [], "used_uris": {}},
-            explain={"kind": "UNDO", "summary": "Rückgängig machen einer früheren Änderung.", "predicates": [], "lines": len(undo_q.splitlines())},
-            undo_sparql=None
-        )
-        return {"ok": True, "message": "Undo ausgeführt."}
-    except Exception as ex:
-        _log_change(
-            status="undo_failed",
-            sparql_text=undo_q,
+            sparql_text=log_q,
             validation={"ok": True, "errors": [], "warnings": [], "used_uris": {}},
             explain={"kind": "UNDO", "summary": "Rückgängig machen einer früheren Änderung.", "predicates": [], "lines": len(undo_q.splitlines())},
             undo_sparql=None,
-            error=str(ex)
+        )
+        return {"ok": True, "message": "Undo ausgeführt."}
+    except Exception as ex:
+        log_q = mask_sparql_for_log(undo_q) if pseudo_enabled() else undo_q
+        _log_change(
+            status="undo_failed",
+            sparql_text=log_q,
+            validation={"ok": True, "errors": [], "warnings": [], "used_uris": {}},
+            explain={"kind": "UNDO", "summary": "Rückgängig machen einer früheren Änderung.", "predicates": [], "lines": len(undo_q.splitlines())},
+            undo_sparql=None,
+            error=str(ex),
         )
         raise HTTPException(status_code=400, detail=f"Undo fehlgeschlagen: {ex}")
+      
 @router.post("/generate")
 def generate(req: GenerateReq):
     out = generate_sparql_with_guardrails(req.text, intent_hint=req.intent)
     if not out.get("ok"):
-        return {
-            "ok": False,
-            "reason": out.get("reason"),
-            "sparql": out.get("sparql"),
-            "validation": out.get("validation"),
-        }
-
+        return {"ok": False, "reason": out.get("reason"), "sparql": out.get("sparql"), "validation": out.get("validation")}
     sparql_text = out["sparql"]
-    validation  = out["validation"]
+    if _is_update_query(sparql_text):
+        sparql_text = _ensure_changes_graph(sparql_text)  # <--- hinzu
+    validation = validate_sparql(sparql_text)
     e = explain_update(sparql_text)
-
     token = _new_token({
-    "sparql": sparql_text,
-    "validation": validation,
-    "explain": e,
-    "placeholders": out.get("placeholders", {})
-})
-
-
+        "sparql": sparql_text,
+        "validation": validation,
+        "explain": e,
+        "placeholders": out.get("placeholders", {})
+    })
     return {
         "ok": True,
-        "model": get_settings().llm_model,   # für Nachvollziehbarkeit
+        "model": get_settings().llm_model,
         "sparql": sparql_text,
         "validation": validation,
         "explain": e,
@@ -320,11 +340,8 @@ def generate(req: GenerateReq):
         "ttl_seconds": _TOKEN_TTL,
         "attempts": out.get("attempts", 1),
     }
+
     
-def _is_update_query(q: str) -> bool:
-    U = (q or "").upper()
-    # Wir erlauben nur echte Update-Statements:
-    return any(k in U for k in ("INSERT", "DELETE", "UPDATE"))
 
 @router.post("/select")
 def run_select(req: SelectReq):

@@ -1,0 +1,56 @@
+version: "3.9"
+
+services:
+  fuseki:
+    platform: linux/amd64
+    image: stain/jena-fuseki
+    container_name: nl2sparql-fuseki
+    ports:
+      - "3030:3030"
+    environment:
+      - ADMIN_PASSWORD=${FUSEKI_PASSWORD}
+    volumes:
+      - fuseki-data:/fuseki
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3030/$/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/api.Dockerfile
+    container_name: nl2sparql-api
+    volumes:
+      - ./app/backend/logs:/app/app/backend/logs
+    env_file:
+      - ./.env
+    environment:
+      - FUSEKI_BASE_URL=${FUSEKI_BASE_URL}
+      - FUSEKI_DATASET=${FUSEKI_DATASET}
+      - FUSEKI_USER=${FUSEKI_USER}
+      - FUSEKI_PASSWORD=${FUSEKI_PASSWORD}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LLM_MODEL=${LLM_MODEL}
+      - LLM_TEMPERATURE=${LLM_TEMPERATURE}
+      - LLM_MAX_OUTPUT_TOKENS=${LLM_MAX_OUTPUT_TOKENS}
+      - CHANGES_GRAPH=${CHANGES_GRAPH}
+    depends_on:
+      - fuseki
+    restart: unless-stopped
+
+  web:
+    build:
+      context: . # <- jetzt Repo-Root
+      dockerfile: infra/web.Dockerfile
+    container_name: nl2sparql-web
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  fuseki-data:

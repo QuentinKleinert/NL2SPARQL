@@ -1,15 +1,27 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.backend.config import get_settings
 from app.backend.routers.nl2sparql import router as nl2sparql_router
 from app.backend.routers.ontology import router as ontology_router
-from app.backend.services.validator import refresh_allowed_cache
 from app.backend.routers.logs import router as logs_router
+from app.backend.services.validator import refresh_allowed_cache
+from app.backend.services.metrics import RequestTimingMiddleware
+from app.backend.routers.metrics import router as metrics_router
+
+
 
 app = FastAPI(title="NL2SPARQL API", version="0.1.0")
+s = get_settings()
+
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8080",
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,           # ODER: ["*"] wenn dir das lieber ist
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -26,3 +38,6 @@ def health():
 @app.on_event("startup")
 def _startup():
     refresh_allowed_cache()
+
+app.add_middleware(RequestTimingMiddleware)
+app.include_router(metrics_router)
