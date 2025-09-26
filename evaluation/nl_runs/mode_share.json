@@ -1,0 +1,60 @@
+[
+  {
+    "prompt": "Füge einen neuen Pfarrer mit Vorname \"Anna\" und Nachname \"Muster\" hinzu.",
+    "n": 10,
+    "unique_variants": 4,
+    "counts_desc": [
+      4,
+      3,
+      2,
+      1
+    ],
+    "mode_share": 0.4
+  },
+  {
+    "prompt": "Lösche den Wohnort der Ressource <urn:example:person:1>.",
+    "n": 10,
+    "unique_variants": 1,
+    "counts_desc": [
+      10
+    ],
+    "mode_share": 1
+  },
+  {
+    "prompt": "Zeige 10 Pfarrer:innen mit Vor- und Nachnamen.",
+    "n": 10,
+    "unique_variants": 9,
+    "counts_desc": [
+      2,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "mode_share": 0.2
+  },
+  {
+    "prompt": "Zeige alle Pfarrer:innen aus Gemeinde \"Musterstadt\".",
+    "n": 10,
+    "unique_variants": 3,
+    "counts_desc": [
+      5,
+      4,
+      1
+    ],
+    "mode_share": 0.5
+  },
+  {
+    "prompt": "Ändere den Nachnamen von <urn:example:person:1> auf \"Beispiel\".",
+    "n": 10,
+    "unique_variants": 1,
+    "counts_desc": [
+      10
+    ],
+    "mode_share": 1
+  }
+]

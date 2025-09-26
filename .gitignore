@@ -50,8 +50,14 @@ ui/.DS_Store
 # --- Sonstiges ---
 *.swp
 
-evaluation/ENVIRONMENT.json
-evaluation/perf_*.json
-evaluation/health.json
-evaluation/ontology_terms.json
-evaluation/dotenv_safe.txt
+evaluation/*
+!evaluation/.gitkeep
+!evaluation/README.md
+!evaluation/snapshot.sh
+!evaluation/nl_runs/
+evaluation/nl_runs/*
+!evaluation/nl_runs/summary_overview.json
+!evaluation/nl_runs/mode_share.json
+!evaluation/nl_runs/prompt_stats.json
+!evaluation/nl_runs/nl_compare.sh
+
