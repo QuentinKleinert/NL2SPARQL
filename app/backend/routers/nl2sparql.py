@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Body
+from typing import Optional
 from pydantic import BaseModel
 import re
 from uuid import uuid4
@@ -32,6 +33,22 @@ class GenerateReq(BaseModel):
     intent: Optional[str] = None
 class SelectReq(BaseModel):
     sparql: str
+    
+class PreviewRes(BaseModel):
+    validation: dict
+    explain: dict
+    confirm_token: Optional[str] = None
+    ttl_seconds: Optional[int] = None
+
+class ExecuteRes(BaseModel):
+    ok: bool
+    message: str
+    undo_sparql: Optional[str] = None
+
+class SelectRes(BaseModel):
+    ok: bool
+    results: dict
+
 
 # --- In-Memory Bestätigungs-Store (einfach, volatil) ---
 _PENDING: dict[str, dict] = {}
@@ -169,15 +186,44 @@ def _ensure_changes_graph(update_q: str) -> str:
 
     return update_q
 
-@router.post("/preview")
-def preview(req: PreviewReq):
-    q = req.sparql
+@router.post("/preview", response_model=PreviewRes)
+async def preview(request: Request):
+    ctype = request.headers.get("content-type", "").lower()
+
+    if "application/json" in ctype:
+        try:
+            payload = await request.json()
+            q = (payload.get("sparql") or "").strip()
+        except Exception:
+            raise HTTPException(
+                status_code=415,
+                detail='Ungültiges JSON. Erwartet: { "sparql": "..." }'
+            )
+    else:
+        # Raw SPARQL (application/sparql-update)
+        q = (await request.body()).decode("utf-8", "ignore").strip()
+
+    if not q:
+        raise HTTPException(
+            status_code=415,
+            detail="Body muss entweder JSON {sparql} oder rohes SPARQL (application/sparql-update) enthalten."
+        )
+
+    # Validieren + erklären + ggf. Token
     if _is_update_query(q):
-        q = _ensure_changes_graph(q)   # <--- hinzu
-    v = validate_sparql(q)
-    e = explain_update(q)
-    token = _new_token({"sparql": q, "validation": v, "explain": e})
-    return {"validation": v, "explain": e, "confirm_token": token, "ttl_seconds": _TOKEN_TTL}
+        q = _ensure_changes_graph(q)
+        v = validate_sparql(q)
+        e = explain_update(q)
+        token = _new_token({"sparql": q, "validation": v, "explain": e})
+        return {"validation": v, "explain": e, "confirm_token": token, "ttl_seconds": _TOKEN_TTL}
+    else:
+        v = validate_sparql(q)
+        try:
+            e = explain_update(q)
+        except Exception:
+            e = {"kind": "READ", "summary": "Keine Update-Query.", "predicates": [], "lines": len(q.splitlines())}
+        return {"validation": v, "explain": e}
+
 
 # ----------------- Execute (mit Token) -----------------
 class ExecuteReq(BaseModel):
@@ -342,11 +388,29 @@ def generate(req: GenerateReq):
     }
 
     
+@router.post("/select", response_model=SelectRes)
+async def run_select(request: Request):
+    ctype = request.headers.get("content-type", "").lower()
+    raw = (await request.body()).decode("utf-8", "ignore")
 
-@router.post("/select")
-def run_select(req: SelectReq):
+    if "application/json" in ctype:
+        try:
+            payload = await request.json()
+            q = (payload.get("sparql") or "").strip()
+        except Exception:
+            raise HTTPException(415, "Ungültiges JSON. Erwartet: { \"sparql\": \"...\" }")
+    else:
+        # raw SPARQL (application/sparql-query)
+        q = (raw or "").strip()
+
+    if not q:
+        raise HTTPException(
+            status_code=415,
+            detail="Body muss entweder JSON {sparql} oder rohes SPARQL (application/sparql-query) enthalten."
+        )
+
     try:
-        data = sparql.query_select(req.sparql)
+        data = sparql.query_select(q)
         return {"ok": True, "results": data}
     except Exception as ex:
         raise HTTPException(status_code=400, detail=f"SELECT fehlgeschlagen: {ex}")
