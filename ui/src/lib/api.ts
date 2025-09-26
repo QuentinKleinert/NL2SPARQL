@@ -39,8 +39,10 @@ export const api = (): AxiosInstance =>
   axios.create({ baseURL: getBackendBase(), timeout: 20000 });
 
 // ---- calls ----
-export async function health(): Promise<HealthResponse> {
-  const r = await api().get<HealthResponse>("/health");
+export async function health() {
+  const r = await axios.get(`${getBackendBase()}/health`, { timeout: 3000 });
+  if (r.status !== 200 || r.data?.ok !== true)
+    throw new Error("Bad health response");
   return r.data;
 }
 

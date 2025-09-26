@@ -77,6 +77,20 @@ export default function App() {
   } | null>(null);
 
   const [perf, setPerf] = useState<PerfMetrics | null>(null);
+  const [perfWindow, setPerfWindow] = useState<number>(60);
+  useEffect(() => {
+    (async () => {
+      try {
+        setPerf(await getPerf(perfWindow));
+      } catch {}
+    })();
+    const perfTimer = setInterval(async () => {
+      try {
+        setPerf(await getPerf(perfWindow));
+      } catch {}
+    }, 10000);
+    return () => clearInterval(perfTimer);
+  }, [base, perfWindow]);
 
   const templates = [
     {
@@ -107,6 +121,8 @@ export default function App() {
       text: 'Füge einen neuen Pfarrer mit Vorname "Max" und Nachname "Mustermann" hinzu.',
     },
   ];
+
+  const [logLimit, setLogLimit] = useState<number>(20);
 
   // helper
   const hideTimer = useRef<number | null>(null);
@@ -140,30 +156,7 @@ export default function App() {
       try {
         setTerms(await getTerms());
       } catch {}
-      try {
-        setLogs((await recentLogs(10)).items);
-      } catch {}
     })();
-    const t = setInterval(async () => {
-      try {
-        setLogs((await recentLogs(10)).items);
-      } catch {}
-    }, 5000);
-    return () => clearInterval(t);
-  }, [base]);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        setPerf(await getPerf(60));
-      } catch {}
-    })();
-    const perfTimer = setInterval(async () => {
-      try {
-        setPerf(await getPerf(60));
-      } catch {}
-    }, 10000);
-    return () => clearInterval(perfTimer);
   }, [base]);
 
   // base url input change
@@ -274,8 +267,10 @@ export default function App() {
   // Run SELECT
   const onRunSelect = async () => {
     const sparqlText = editor;
-    const U = sparqlText.trim().toUpperCase();
-    if (!(U.startsWith("SELECT") || U.startsWith("ASK"))) {
+    const looksLikeSelect = /^\s*(PREFIX\s+[^\n]+\n)*\s*(SELECT|ASK)\b/i.test(
+      sparqlText
+    );
+    if (!looksLikeSelect) {
       show(
         'Bitte einen gültigen SELECT/ASK ins Editor-Feld schreiben (Updates mit "Execute" ausführen).',
         "info"
@@ -330,13 +325,38 @@ export default function App() {
     try {
       await undoChange({ log_record: rec });
       show("Undo ausgeführt.", "success");
-      // Logs sofort aktualisieren (zusätzlich zum Polling)
-      setLogs((await recentLogs(10)).items);
+      setLogs((await recentLogs(logLimit)).items.slice().reverse());
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       show(`Undo-Fehler: ${msg}`, "error");
     }
   };
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setPingOK((await health()).ok);
+      } catch {
+        setPingOK(false);
+      }
+      try {
+        setTerms(await getTerms());
+      } catch {}
+      try {
+        const r = await recentLogs(logLimit);
+        setLogs(r.items.slice().reverse()); // neueste zuerst
+      } catch {}
+    })();
+
+    const t = setInterval(async () => {
+      try {
+        const r = await recentLogs(logLimit);
+        setLogs(r.items.slice().reverse()); // neueste zuerst
+      } catch {}
+    }, 5000);
+
+    return () => clearInterval(t);
+  }, [base, logLimit]);
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100">
@@ -372,7 +392,7 @@ export default function App() {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4 py-6 space-y-8">
+      <div className="max-w-6xl px-6 py-8 space-y-10">
         {/* NL Input */}
         <section>
           <h2 className="text-lg font-semibold mb-2">
@@ -526,7 +546,7 @@ export default function App() {
 
               <details className="rounded border border-slate-700" open>
                 <summary className="px-3 py-2 text-sm font-medium bg-slate-800 cursor-pointer">
-                  Recent Logs (10)
+                  Recent Logs (neueste zuerst, {logLimit})
                 </summary>
                 <div className="p-2 space-y-2">
                   {logs.map((x, i) => {
@@ -562,6 +582,21 @@ export default function App() {
                       </div>
                     );
                   })}
+                  <div className="px-3 pb-2 text-[11px] text-slate-400">
+                    Limit:&nbsp;
+                    <select
+                      value={logLimit}
+                      onChange={(e) => setLogLimit(Number(e.target.value))}
+                      className="bg-slate-900 border border-slate-700 rounded px-1 py-0.5"
+                    >
+                      <option value={10}>10</option>
+                      <option value={20}>20</option>
+                      <option value={50}>50</option>
+                    </select>
+                    <span className="ml-2">
+                      Hinweis: Klartexte sind in Logs pseudonymisiert (px-…)
+                    </span>
+                  </div>
                 </div>
               </details>
             </div>
@@ -601,29 +636,54 @@ export default function App() {
           </div>
         </section>
         <div className="rounded border border-slate-700">
-          <div className="px-3 py-2 text-sm font-medium border-b border-slate-700 bg-slate-800">
-            Performance (letzte {perf?.window_minutes ?? 60} min)
+          <div className="px-3 py-2 text-sm font-medium border-b border-slate-700 bg-slate-800 flex items-center justify-between">
+            <span>
+              Performance (letzte {perf?.window_minutes ?? perfWindow} min)
+            </span>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-slate-400">Fenster:</label>
+              <select
+                value={perfWindow}
+                onChange={(e) => setPerfWindow(Number(e.target.value))}
+                className="bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-xs"
+              >
+                <option value={15}>15</option>
+                <option value={30}>30</option>
+                <option value={60}>60</option>
+              </select>
+              <button
+                onClick={async () => setPerf(await getPerf(perfWindow))}
+                className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs"
+                title="Neu laden"
+              >
+                Refresh
+              </button>
+            </div>
           </div>
           <div className="p-3 text-xs space-y-2">
             {perf ? (
               <>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="rounded bg-slate-800 p-2 border border-slate-700">
-                    <div className="font-medium">HTTP</div>
+                <div className="grid md:grid-cols-3 grid-cols-1 gap-3">
+                  <div className="rounded-xl bg-slate-800 p-4 border border-slate-700 shadow-sm">
+                    <div className="text-sm font-medium mb-1">HTTP</div>
                     <div>n: {perf.http.n}</div>
                     <div>p50: {perf.http.p50_ms} ms</div>
                     <div>p95: {perf.http.p95_ms} ms</div>
                     <div>max: {perf.http.max_ms} ms</div>
                   </div>
-                  <div className="rounded bg-slate-800 p-2 border border-slate-700">
-                    <div className="font-medium">Fuseki SELECT</div>
+                  <div className="rounded-xl bg-slate-800 p-4 border border-slate-700 shadow-sm">
+                    <div className="text-sm font-medium mb-1">
+                      Fuseki SELECT
+                    </div>
                     <div>n: {perf.fuseki.select.n}</div>
                     <div>p50: {perf.fuseki.select.p50_ms} ms</div>
                     <div>p95: {perf.fuseki.select.p95_ms} ms</div>
                     <div>max: {perf.fuseki.select.max_ms} ms</div>
                   </div>
-                  <div className="rounded bg-slate-800 p-2 border border-slate-700">
-                    <div className="font-medium">Fuseki UPDATE</div>
+                  <div className="rounded-xl bg-slate-800 p-4 border border-slate-700 shadow-sm">
+                    <div className="text-sm font-medium mb-1">
+                      Fuseki UPDATE
+                    </div>
                     <div>n: {perf.fuseki.update.n}</div>
                     <div>p50: {perf.fuseki.update.p50_ms} ms</div>
                     <div>p95: {perf.fuseki.update.p95_ms} ms</div>
@@ -645,7 +705,7 @@ export default function App() {
                 </details>
               </>
             ) : (
-              "—"
+              "Keine Daten im Zeitraum."
             )}
           </div>
         </div>
