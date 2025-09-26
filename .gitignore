@@ -49,3 +49,9 @@ ui/.DS_Store
 
 # --- Sonstiges ---
 *.swp
+
+evaluation/ENVIRONMENT.json
+evaluation/perf_*.json
+evaluation/health.json
+evaluation/ontology_terms.json
+evaluation/dotenv_safe.txt

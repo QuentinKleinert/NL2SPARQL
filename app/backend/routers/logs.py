@@ -23,4 +23,5 @@ def recent_logs(limit: int = Query(50, ge=1, le=500)):
                 items.append(rec)
             except Exception:
                 continue
-    return {"items": items[-limit:]}
+    return {"items": items[-limit:][::-1]}
+
