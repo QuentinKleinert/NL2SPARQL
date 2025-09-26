@@ -8,18 +8,25 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+*.egg-info/
+.eggs/
 .coverage
+.coverage.*
+coverage/
 htmlcov/
+.python-version
 
 # --- macOS / Editor ---
 .DS_Store
 .vscode/
 .idea/
+.history/
 
 # --- Env / Secrets ---
 .env
 .env.*
-!.env.example   # falls du später eine Beispiel-Env committen willst
+!.env.example          # Beispiel-Env darf committed werden
+.envrc                 # direnv
 
 # --- Logs ---
 *.log
@@ -29,18 +36,27 @@ app/backend/logs/*
 # --- Docker/Fuseki Persistenz ---
 infra/fuseki/*
 !infra/fuseki/.gitkeep
-# Falls du deine shiro.ini NICHT commiten willst (empfohlen):
 infra/fuseki/shiro.ini
-docker-compose.override.yml
 infra/shiro.ini
+docker-compose.override.yml
 
 # --- Vendor (Prof-Daten) ---
 vendor/
 
-# --- Node (für späteres Frontend) ---
+# --- Node / Frontend ---
 node_modules/
 dist/
 build/
+.npmrc                 # kann Tokens enthalten; nutze ggf. .npmrc.example
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+.eslintcache
+.parcel-cache/
+.turbo/
+.next/
+.vercel/
 
 # --- UI build ---
 ui/node_modules/
@@ -49,9 +65,23 @@ ui/.DS_Store
 
 # --- Sonstiges ---
 *.swp
+.cache/
+.ipynb_checkpoints/
 
-evaluation/ENVIRONMENT.json
+# --- Evaluation / Messartefakte ---
+evaluation/ENVIRONMENT*.json
 evaluation/perf_*.json
 evaluation/health.json
 evaluation/ontology_terms.json
 evaluation/dotenv_safe.txt
+evaluation/logs_after.json
+evaluation/select_check.json
+evaluation/run_*.json
+evaluation/run_preview.json
+evaluation/run_execute.json
+evaluation/run_undo.json
+
+# Aus den NL-Runs: alle Outputs ignorieren, aber Skripte behalten
+evaluation/nl_runs/run_*/
+evaluation/nl_runs/*.json
+evaluation/nl_runs/*.jsonl

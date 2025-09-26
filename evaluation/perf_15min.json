@@ -1,1 +1,0 @@
-{"window_minutes":15,"http":{"n":4,"p50_ms":14.2,"p95_ms":92.5,"max_ms":104.4},"fuseki":{"select":{"n":2,"p50_ms":51.2,"p95_ms":74.5,"max_ms":77.1},"update":{"n":0,"p50_ms":0,"p95_ms":0,"max_ms":0}},"top_http_paths":[{"path":"/health","count":2},{"path":"/metrics/perf","count":1},{"path":"/ontology/terms","count":1}]}
