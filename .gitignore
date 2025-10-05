@@ -79,7 +79,12 @@ docker-compose.override.yml
 # ---------------------------------------------------------------------------
 # Daten & Vendor
 # ---------------------------------------------------------------------------
-vendor/
+vendor/*
+!vendor/.gitkeep
+!vendor/pfarrerdaten/
+vendor/pfarrerdaten/*
+vendor/pfarrerdaten/.*
+!vendor/pfarrerdaten/.gitkeep
 *.sqlite
 *.sqlite3
 *.db
