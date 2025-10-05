@@ -17,6 +17,12 @@ class Settings(BaseSettings):
 
     changes_graph: str = Field("urn:nl2sparql:changes", alias="CHANGES_GRAPH")
 
+    # Security & Monitoring
+    api_auth_token: str = Field(..., alias="API_AUTH_TOKEN")
+    rate_limit_per_minute: int = Field(120, alias="RATE_LIMIT_PER_MINUTE")
+    rate_limit_burst: int = Field(30, alias="RATE_LIMIT_BURST")
+    enable_prometheus_metrics: bool = Field(True, alias="ENABLE_PROMETHEUS_METRICS")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -1,63 +1,104 @@
-# --- Python / venv ---
+# ---------------------------------------------------------------------------
+# Betriebssystem & IDE
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.iml
+
+# ---------------------------------------------------------------------------
+# Python / Build-Artefakte
+# ---------------------------------------------------------------------------
 .venv/
+.venv*/
+env/
 __pycache__/
+**/__pycache__/
 *.py[cod]
-*.pyo
+*$py.class
 *.pyd
 *.so
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.tox/
+.cache/
 .coverage
+coverage/
+coverage.xml
 htmlcov/
+build/
+dist/
+pip-wheel-metadata/
+*.egg-info/
+.eggs/
 
-# --- macOS / Editor ---
-.DS_Store
-.vscode/
-.idea/
+# ---------------------------------------------------------------------------
+# Node / Frontend
+# ---------------------------------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tsbuildinfo
 
-# --- Env / Secrets ---
+ui/node_modules/
+ui/dist/
+ui/.DS_Store
+ui/.env*
+!ui/.env.example
+ui/.eslintcache
+
+# ---------------------------------------------------------------------------
+# Environment / Secrets
+# ---------------------------------------------------------------------------
 .env
 .env.*
-!.env.example   # falls du später eine Beispiel-Env committen willst
+!.env.example
 
-# --- Logs ---
+# ---------------------------------------------------------------------------
+# Logs & Laufzeitdaten
+# ---------------------------------------------------------------------------
 *.log
 app/backend/logs/*
 !app/backend/logs/.gitkeep
 
-# --- Docker/Fuseki Persistenz ---
+# ---------------------------------------------------------------------------
+# Docker / Fuseki Persistenz
+# ---------------------------------------------------------------------------
 infra/fuseki/*
 !infra/fuseki/.gitkeep
-# Falls du deine shiro.ini NICHT commiten willst (empfohlen):
 infra/fuseki/shiro.ini
-docker-compose.override.yml
 infra/shiro.ini
+docker-compose.override.yml
 
-# --- Vendor (Prof-Daten) ---
+# ---------------------------------------------------------------------------
+# Daten & Vendor
+# ---------------------------------------------------------------------------
 vendor/
+*.sqlite
+*.sqlite3
+*.db
 
-# --- Node (für späteres Frontend) ---
-node_modules/
-dist/
-build/
-
-# --- UI build ---
-ui/node_modules/
-ui/dist/
-ui/.DS_Store
-
-# --- Sonstiges ---
-*.swp
-
+# ---------------------------------------------------------------------------
+# Evaluation Artefakte (nur ausgewählte Dateien tracken)
+# ---------------------------------------------------------------------------
 evaluation/*
 !evaluation/.gitkeep
 !evaluation/README.md
 !evaluation/snapshot.sh
 !evaluation/nl_runs/
 evaluation/nl_runs/*
+!evaluation/nl_runs/nl_compare.sh
 !evaluation/nl_runs/summary_overview.json
 !evaluation/nl_runs/mode_share.json
 !evaluation/nl_runs/prompt_stats.json
-!evaluation/nl_runs/nl_compare.sh
 
+# ---------------------------------------------------------------------------
+# Sonstiges
+# ---------------------------------------------------------------------------
+*.orig

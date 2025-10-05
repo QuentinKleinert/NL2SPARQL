@@ -5,7 +5,25 @@ from typing import Iterable
 # ENV-Konfiguration (mit Defaults)
 _PSEUDO_ON = os.getenv("PSEUDONYMIZE_LOGS", "1").strip() not in ("0", "false", "False", "")
 _SALT = os.getenv("LOG_PSEUDO_SALT", "change-me-in-prod")
-_FIELDS = [f.strip() for f in os.getenv("LOG_PSEUDO_FIELDS", "voc:vorname,voc:nachname").split(",") if f.strip()]
+_FIELDS = [
+    f.strip()
+    for f in os.getenv(
+        "LOG_PSEUDO_FIELDS",
+        "voc:vorname,voc:nachname,voc:geburtsname,voc:familienname",
+    ).split(",")
+    if f.strip()
+]
+
+_URI_PAT = re.compile(r'<([^>]+(?:person|pfarrer|gemeinde|ort)[^>]*)>', re.IGNORECASE)
+_PLAIN_LITERAL_PAT = {
+    field: re.compile(rf'(\b{re.escape(field)}\s+)(?!["\'?])(\w[\w\-]*)', re.IGNORECASE)
+    for field in _FIELDS
+}
+
+
+def _pseudo_uri(uri: str) -> str:
+    token = pseudonym(uri).replace("px-", "")
+    return f"<urn:pseudo:{token}>"
 
 def enabled() -> bool:
     return _PSEUDO_ON
@@ -34,6 +52,19 @@ def mask_sparql_for_log(sparql_text: str, fields: Iterable[str] | None = None) -
         # \bprop\s*"VALUE"
         pat = re.compile(rf'(\b{re.escape(prop)}\s*["\'])([^"\']+)(["\'])')
         out = pat.sub(lambda m: m.group(1) + pseudonym(m.group(2)) + m.group(3), out)
+        plain_pat = _PLAIN_LITERAL_PAT.get(prop)
+        if plain_pat:
+            out = plain_pat.sub(
+                lambda m: m.group(1) + pseudonym(m.group(2))
+                if not m.group(2).startswith("?")
+                else m.group(0),
+                out,
+            )
+
+    def _mask_uri(match: re.Match[str]) -> str:
+        return _pseudo_uri(match.group(1))
+
+    out = _URI_PAT.sub(_mask_uri, out)
     return out
 
 def mask_log_record(rec: dict) -> dict:

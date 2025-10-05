@@ -1,14 +1,21 @@
-import os, time, uuid, requests
+import os, time, uuid, requests, pytest
 
 API = os.getenv("API_BASE", "http://localhost:8000")
+API_KEY = os.getenv("API_AUTH_TOKEN")
+HEADERS = {"x-api-key": API_KEY} if API_KEY else {}
+
+pytestmark = pytest.mark.skipif(
+    os.getenv("RUN_INTEGRATION_TESTS") != "1",
+    reason="Integration tests disabled (set RUN_INTEGRATION_TESTS=1)",
+)
 
 def post(path, json=None):
-    r = requests.post(API + path, json=json, timeout=20)
+    r = requests.post(API + path, json=json, timeout=20, headers=HEADERS)
     r.raise_for_status()
     return r.json()
 
 def get(path):
-    r = requests.get(API + path, timeout=20)
+    r = requests.get(API + path, timeout=20, headers=HEADERS)
     r.raise_for_status()
     return r.json()
 

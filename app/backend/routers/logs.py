@@ -1,9 +1,14 @@
 # app/backend/routers/logs.py
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 import json, os
 from app.backend.services.pseudonymizer import mask_log_record  
+from app.backend.services.security import rate_limit_dependency
 
-router = APIRouter(prefix="/logs", tags=["logs"])
+router = APIRouter(
+    prefix="/logs",
+    tags=["logs"],
+    dependencies=[Depends(rate_limit_dependency)],
+)
 
 LOG_PATH = "app/backend/logs/changes.jsonl"
 
@@ -24,4 +29,3 @@ def recent_logs(limit: int = Query(50, ge=1, le=500)):
             except Exception:
                 continue
     return {"items": items[-limit:][::-1]}
-

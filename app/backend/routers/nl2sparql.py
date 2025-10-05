@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 import re
 from uuid import uuid4
@@ -11,6 +11,7 @@ from app.backend.services.explain import explain_update
 
 from app.backend.services.llm import generate_sparql_with_guardrails
 from app.backend.config import get_settings
+from app.backend.services.security import rate_limit_dependency
 
 from app.backend.services.pseudonymizer import (
     mask_sparql_for_log,
@@ -19,7 +20,11 @@ from app.backend.services.pseudonymizer import (
 )
 
 
-router = APIRouter(prefix="/nl2sparql", tags=["nl2sparql"])
+router = APIRouter(
+    prefix="/nl2sparql",
+    tags=["nl2sparql"],
+    dependencies=[Depends(rate_limit_dependency)],
+)
 
 VOC = "http://meta-pfarrerbuch.evangelische-archive.de/vocabulary#"
 PREFIX = f"PREFIX voc:<{VOC}>\n"

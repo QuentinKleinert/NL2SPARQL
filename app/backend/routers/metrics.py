@@ -1,9 +1,22 @@
 # app/backend/routers/metrics.py
-from fastapi import APIRouter, Query
-import os, json, time, datetime
 from collections import Counter
+import datetime
+import json
+import os
+import time
 
-router = APIRouter(prefix="/metrics", tags=["metrics"])
+from fastapi import APIRouter, Query, Depends
+from fastapi.responses import Response
+from prometheus_client import CONTENT_TYPE_LATEST
+
+from app.backend.services.monitoring import prometheus_latest
+from app.backend.services.security import rate_limit_dependency
+
+router = APIRouter(
+    prefix="/metrics",
+    tags=["metrics"],
+    dependencies=[Depends(rate_limit_dependency)],
+)
 
 PERF_FILE = os.getenv("PERF_LOG_FILE", "app/backend/logs/perf.jsonl")
 
@@ -68,3 +81,8 @@ def perf(minutes: int = Query(60, ge=1, le=1440)):
         },
         "top_http_paths": top_http_paths,
     }
+
+
+@router.get("/prometheus", include_in_schema=False)
+def prometheus_metrics() -> Response:
+    return Response(prometheus_latest(), media_type=CONTENT_TYPE_LATEST)

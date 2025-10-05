@@ -1,7 +1,12 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from app.backend.services import sparql
+from app.backend.services.security import rate_limit_dependency
 
-router = APIRouter(prefix="/ontology", tags=["ontology"])
+router = APIRouter(
+    prefix="/ontology",
+    tags=["ontology"],
+    dependencies=[Depends(rate_limit_dependency)],
+)
 
 _QUERY_CLASSES = """
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
@@ -35,4 +40,3 @@ def get_terms():
 
     return {"classes": list(rows(classes, "c", "label")),
             "properties": list(rows(props, "p", "label"))}
-

@@ -17,30 +17,53 @@ import type {
 } from "../types";
 
 // Einheitlicher Key
-const LS_KEY = "nl2sparql_backend_base";
+const LS_KEY_BASE = "nl2sparql_backend_base";
+const LS_KEY_TOKEN = "nl2sparql_api_token";
 
 // In Prod immer Proxy-Pfad / Env, in Dev fallback auf 127.0.0.1:8000
 const DEFAULT_BASE =
   import.meta.env.VITE_BACKEND_BASE_URL ??
   (import.meta.env.PROD ? "/api" : "http://127.0.0.1:8000");
+const DEFAULT_TOKEN =
+  import.meta.env.VITE_API_TOKEN ?? (import.meta.env.PROD ? "" : "dev-token");
 
 export const getBackendBase = (): string => {
   if (import.meta.env.PROD) return DEFAULT_BASE; // Prod: fest
-  return localStorage.getItem(LS_KEY) ?? DEFAULT_BASE; // Dev: LS-Override
+  return localStorage.getItem(LS_KEY_BASE) ?? DEFAULT_BASE; // Dev: LS-Override
 };
 
 export const setBackendBase = (v: string) => {
   if (import.meta.env.PROD) return; // Prod: ignorieren
-  localStorage.setItem(LS_KEY, v);
+  localStorage.setItem(LS_KEY_BASE, v);
+};
+
+export const getApiToken = (): string => {
+  if (import.meta.env.PROD) return DEFAULT_TOKEN ?? "";
+  return localStorage.getItem(LS_KEY_TOKEN) ?? DEFAULT_TOKEN ?? "";
+};
+
+export const setApiToken = (token: string) => {
+  if (import.meta.env.PROD) return;
+  if (token) {
+    localStorage.setItem(LS_KEY_TOKEN, token);
+  } else {
+    localStorage.removeItem(LS_KEY_TOKEN);
+  }
 };
 
 // Wichtig: JEDES MAL die aktuelle Base holen
-export const api = (): AxiosInstance =>
-  axios.create({ baseURL: getBackendBase(), timeout: 20000 });
+export const api = (): AxiosInstance => {
+  const token = getApiToken();
+  return axios.create({
+    baseURL: getBackendBase(),
+    timeout: 20000,
+    headers: token ? { "x-api-key": token } : undefined,
+  });
+};
 
 // ---- calls ----
-export async function health() {
-  const r = await axios.get(`${getBackendBase()}/health`, { timeout: 3000 });
+export async function health(): Promise<HealthResponse> {
+  const r = await api().get<HealthResponse>("/health");
   if (r.status !== 200 || r.data?.ok !== true)
     throw new Error("Bad health response");
   return r.data;
@@ -101,5 +124,10 @@ export async function undoChange(req: UndoRequest): Promise<UndoResponse> {
 
 export async function getPerf(minutes = 60): Promise<PerfMetrics> {
   const r = await api().get(`/metrics/perf?minutes=${minutes}`);
+  return r.data;
+}
+
+export async function fetchKpsSample(): Promise<SPARQLSelectJSON> {
+  const r = await api().get("/kps/sample");
   return r.data;
 }

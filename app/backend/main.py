@@ -6,7 +6,9 @@ from app.backend.routers.ontology import router as ontology_router
 from app.backend.routers.logs import router as logs_router
 from app.backend.services.validator import refresh_allowed_cache
 from app.backend.services.metrics import RequestTimingMiddleware
+from app.backend.services.security import refresh_rate_limiter
 from app.backend.routers.metrics import router as metrics_router
+from app.backend.routers.kps import router as kps_router
 
 
 
@@ -30,6 +32,7 @@ app.add_middleware(
 app.include_router(nl2sparql_router)
 app.include_router(ontology_router)
 app.include_router(logs_router)
+app.include_router(kps_router)
 
 @app.get("/health")
 def health():
@@ -38,6 +41,7 @@ def health():
 @app.on_event("startup")
 def _startup():
     refresh_allowed_cache()
+    refresh_rate_limiter()
 
 app.add_middleware(RequestTimingMiddleware)
 app.include_router(metrics_router)

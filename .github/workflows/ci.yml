@@ -2,85 +2,56 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   pull_request:
 
 jobs:
-  build-test:
+  build-and-test:
     runs-on: ubuntu-latest
-
+    env:
+      FUSEKI_BASE_URL: http://example.org
+      FUSEKI_DATASET: test
+      FUSEKI_USER: user
+      FUSEKI_PASSWORD: pass
+      OPENAI_API_KEY: sk-ci
+      LLM_MODEL: gpt-4.1-mini
+      LLM_TEMPERATURE: "0.2"
+      LLM_MAX_OUTPUT_TOKENS: "1200"
+      CHANGES_GRAPH: urn:ci:changes
+      API_AUTH_TOKEN: ci-token
+      RATE_LIMIT_PER_MINUTE: "120"
+      RATE_LIMIT_BURST: "30"
+      ENABLE_PROMETHEUS_METRICS: "1"
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
 
       - name: Build UI
         working-directory: ui
         run: |
           npm ci
-          echo "VITE_BACKEND_BASE_URL=/api" > .env.production
           npm run build
 
-      - name: Create .env for compose
-        run: |
-          cat > .env <<'EOF'
-          FUSEKI_BASE_URL=http://fuseki:3030
-          FUSEKI_DATASET=combined
-          FUSEKI_USER=admin
-          FUSEKI_PASSWORD=admin
-          OPENAI_API_KEY=dummy
-          LLM_MODEL=gpt-4.1-mini
-          LLM_TEMPERATURE=0.2
-          LLM_MAX_OUTPUT_TOKENS=1200
-          CHANGES_GRAPH=urn:nl2sparql:changes
-          EOF
-
-      - name: Build & Start stack
-        run: docker compose up -d --build
-
-      - name: Wait for API
-        run: |
-          for i in {1..30}; do
-            if curl -s http://localhost:8000/health | grep -q '"ok":true'; then
-              echo "API is up"; exit 0
-            fi
-            sleep 2
-          done
-          echo "API did not come up" >&2
-          exit 1
-
-      - name: Load data into Fuseki
-        run: |
-          sudo apt-get update && sudo apt-get install -y gzip curl
-          gunzip -c vendor/pfarrerdaten/meta-combined.nq.gz \
-          | curl -u admin:admin \
-            -s -o /dev/null -w "%{http_code}\n" \
-            -X POST -H "Content-Type: application/n-quads" \
-            --data-binary @- \
-            "http://localhost:3030/combined/data"
-          gunzip -c vendor/pfarrerdaten/vocabulary.nt.gz \
-          | curl -u admin:admin \
-            -X POST -H "Content-Type: application/n-triples" \
-            --data-binary @- \
-            "http://localhost:3030/combined/data?default"
-
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
 
-      - name: Run tests
+      - name: Install Python dependencies
         run: |
-          python -m venv .venv
-          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
           pip install -r tests/requirements.txt
-          export API_BASE=http://localhost:8000
-          pytest -q
 
-      - name: Logs on failure
-        if: failure()
-        run: docker compose logs --no-color
+      - name: Run unit tests
+        env:
+          PYTHONPATH: .
+        run: pytest -q

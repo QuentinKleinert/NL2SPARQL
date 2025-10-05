@@ -33,20 +33,36 @@ def _fetch_terms(limit_each: int = 150) -> Tuple[List[str], List[str]]:
 
 # ---------- Mini-Anonymisierung des Usertexts ----------
 _ANON_NUMBER = re.compile(r'\b\d{1,4}([.-]\d{1,2}([.-]\d{1,2})?)?\b')
+_KEYWORD_PHRASE = re.compile(
+    r'(?i)\b(vorname|nachname|geburtsname|name|gemeinde|ort|kirche|pfarrer(?:in)?)\s*[:=]?\s*([A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-]+(?:\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-]+)?)'
+)
+
+
 def anonymize_text(user_text: str) -> Tuple[str, Dict[str, str]]:
     """
-    Heuristik: Ersetze Strings in Anführungszeichen und Datum/Jahr durch Platzhalter.
+    Heuristik: Ersetzt Strings in Anführungszeichen, Schlüsselwort-Phrasen und Datum/Jahr durch Platzhalter.
     """
     placeholders: Dict[str, str] = {}
     t = user_text or ""
 
-    # "..." -> PHx
-    def repl_quotes(m):
-        val = m.group(0)
-        key = f"PH{len(placeholders)+1}"
+    def _reserve(val: str) -> str:
+        key = f"PH{len(placeholders) + 1}"
         placeholders[key] = val
         return key
+
+    def repl_quotes(m: re.Match[str]) -> str:
+        return _reserve(m.group(0))
+
     t = re.sub(r'"[^"]+"', repl_quotes, t)
+    t = re.sub(r"'[^']+'", repl_quotes, t)
+
+    def repl_keyword(m: re.Match[str]) -> str:
+        prefix = m.group(1)
+        value = m.group(2)
+        placeholder = _reserve(value)
+        return f"{prefix} {placeholder}"
+
+    t = _KEYWORD_PHRASE.sub(repl_keyword, t)
 
     t = _ANON_NUMBER.sub("PH_YEAR", t)
     return t, placeholders

@@ -2,7 +2,9 @@
 import httpx
 import time, json, os, threading
 from pathlib import Path
+
 from app.backend.config import get_settings
+from app.backend.services.monitoring import record_fuseki_request
 
 _client = httpx.Client(timeout=60.0)
 
@@ -45,12 +47,14 @@ def query_select(query: str) -> dict:
             auth=(s.fuseki_user, s.fuseki_password),
         )
 
-    dt = (time.perf_counter() - t0) * 1000.0
+    dt_s = time.perf_counter() - t0
+    dt = dt_s * 1000.0
     status = r.status_code
     try:
         r.raise_for_status()
     finally:
         _perf("fuseki", op="select", status=status, dur_ms=round(dt, 1), bytes=len(query))
+        record_fuseki_request("select", status, dt_s)
 
     return r.json()
 
@@ -63,9 +67,11 @@ def query_update(update: str) -> None:
 
     r = _client.post(url, data={"update": update}, auth=(s.fuseki_user, s.fuseki_password))
 
-    dt = (time.perf_counter() - t0) * 1000.0
+    dt_s = time.perf_counter() - t0
+    dt = dt_s * 1000.0
     status = r.status_code
     try:
         r.raise_for_status()
     finally:
         _perf("fuseki", op="update", status=status, dur_ms=round(dt, 1), bytes=len(update))
+        record_fuseki_request("update", status, dt_s)

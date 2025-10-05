@@ -90,7 +90,6 @@ export interface UndoResponse {
 
 export type PerfStats = {
   n: number;
-  avg_ms: number;
   p50_ms: number;
   p95_ms: number;
   max_ms: number;
@@ -98,7 +97,6 @@ export type PerfStats = {
 
 export type PerfMetrics = {
   window_minutes: number;
-  counts: { rows: number };
   http: PerfStats;
   fuseki: { select: PerfStats; update: PerfStats };
   top_http_paths: { path: string; count: number }[];
