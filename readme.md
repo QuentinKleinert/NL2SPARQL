@@ -192,10 +192,10 @@ In der UI kann die Backend-Adresse (Standard `http://127.0.0.1:8000`) oben angep
 
 ### Pfarrerdaten beziehen
 
-1. Lege ein temporäres Arbeitsverzeichnis an und klone das Forschungs-Repository:
+1. Lege ein temporäres Arbeitsverzeichnis an und klone das Forschungs-Repository (Internes GitHub-Repository; der Zugriff auf \texttt{pcp-on-web/pfarrerbuch-meta} ist projektintern geregelt.) :
    ```bash
    mkdir -p tmp
-   git clone https://github.com/pcp-on-web/pfarrerbuch-meta tmp/pfarrerbuch-meta
+   git clone git-url tmp/pfarrerbuch-meta
    ```
 2. Kopiere die benötigten Dumps (z. B. `meta-*.nt.gz`, `vocabulary.nt.gz`) und die Fuseki-Konfiguration (`config.ttl`) nach `vendor/pfarrerdaten/`.
 3. Entferne das temporäre Verzeichnis wieder (`rm -rf tmp/pfarrerbuch-meta`), damit keine vertraulichen Daten im Projekt verbleiben.
