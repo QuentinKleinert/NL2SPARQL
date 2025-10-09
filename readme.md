@@ -123,7 +123,9 @@ ENABLE_PROMETHEUS_METRICS=1
 PROMETHEUS_BEARER_TOKEN=${API_AUTH_TOKEN}
 ENV
 
-# 3. UI für Produktion bauen
+# 3 Deinen AI Key bei OPEN_AI_Key=... eintragen
+
+# 4. UI für Produktion bauen
 cd ui
 npm ci
 npm run build
@@ -132,12 +134,8 @@ cd ..
 # 4. Compose-Stack hochfahren
 docker compose up -d --build
 
-# Optional: Monitoring (Prometheus + Grafana) zusätzlich starten
-docker compose -f docker-compose.yml -f infra/monitoring/docker-compose.monitoring.yml up -d
-
 # Stacks wieder stoppen
 docker compose down
-docker compose -f docker-compose.yml -f infra/monitoring/docker-compose.monitoring.yml down
 ```
 
 | Service          | URL                   | Login         |
@@ -199,8 +197,6 @@ In der UI kann die Backend-Adresse (Standard `http://127.0.0.1:8000`) oben angep
    ```
 2. Kopiere die benötigten Dumps (z. B. `meta-*.nt.gz`, `vocabulary.nt.gz`) und die Fuseki-Konfiguration (`config.ttl`) nach `vendor/pfarrerdaten/`.
 3. Entferne das temporäre Verzeichnis wieder (`rm -rf tmp/pfarrerbuch-meta`), damit keine vertraulichen Daten im Projekt verbleiben.
-
-> Prüfe vor dem Teilen mit Dritten die Lizenzbedingungen im Repository `pcp-on-web/pfarrerbuch-meta`.
 
 ### Beispiel-Datensätze (lokal; Fuseki muss laufen)
 
