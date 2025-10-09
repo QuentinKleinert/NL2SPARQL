@@ -190,26 +190,24 @@ In der UI kann die Backend-Adresse (Standard `http://127.0.0.1:8000`) oben angep
 
 ### Pfarrerdaten beziehen
 
-1. Lege ein temporäres Arbeitsverzeichnis an und klone das Forschungs-Repository (Internes GitHub-Repository; der Zugriff auf \texttt{pcp-on-web/pfarrerbuch-meta} ist projektintern geregelt.) :
+1. Gehe in den vorgesehenen Ordner und clone das Repo der Pfarredatenbank:
    ```bash
-   mkdir -p tmp
+   cd vendor/pfarrerdata
    git clone git-url tmp/pfarrerbuch-meta
    ```
-2. Kopiere die benötigten Dumps (z. B. `meta-*.nt.gz`, `vocabulary.nt.gz`) und die Fuseki-Konfiguration (`config.ttl`) nach `vendor/pfarrerdaten/`.
-3. Entferne das temporäre Verzeichnis wieder (`rm -rf tmp/pfarrerbuch-meta`), damit keine vertraulichen Daten im Projekt verbleiben.
 
 ### Beispiel-Datensätze (lokal; Fuseki muss laufen)
 
 ```bash
 # N-Quads (Graphdaten)
-gunzip -c vendor/pfarrerdaten/meta-combined.nq.gz \
+gunzip -c vendor/pfarrerdaten/pfarrerbuch-meta/meta-combined.nq.gz \
 | curl -u admin:${FUSEKI_PASSWORD:-admin} \
   -X POST -H "Content-Type: application/n-quads" \
   --data-binary @- \
   "http://localhost:3030/combined/data"
 
 # Vokabular als Default Graph
-gunzip -c vendor/pfarrerdaten/vocabulary.nt.gz \
+gunzip -c vendor/pfarrerdaten/pfarrerbuch-meta/vocabulary.nt.gz \
 | curl -u admin:${FUSEKI_PASSWORD:-admin} \
   -X POST -H "Content-Type: application/n-triples" \
   --data-binary @- \
