@@ -8,7 +8,10 @@ services:
     ports:
       - "3030:3030"
     environment:
-      - ADMIN_PASSWORD=${FUSEKI_PASSWORD}
+      ADMIN_PASSWORD: ${FUSEKI_PASSWORD} 
+      FUSEKI_DATASET_1: combined
+      FUSEKI_DATASET_1_TYPE: tdb2
+      FUSEKI_DATASET_1_ALLOW_UPDATE: "true"
     volumes:
       - fuseki-data:/fuseki
     healthcheck:
@@ -28,22 +31,22 @@ services:
     env_file:
       - ./.env
     environment:
-      - FUSEKI_BASE_URL=${FUSEKI_BASE_URL}
-      - FUSEKI_DATASET=${FUSEKI_DATASET}
-      - FUSEKI_USER=${FUSEKI_USER}
-      - FUSEKI_PASSWORD=${FUSEKI_PASSWORD}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - LLM_MODEL=${LLM_MODEL}
-      - LLM_TEMPERATURE=${LLM_TEMPERATURE}
-      - LLM_MAX_OUTPUT_TOKENS=${LLM_MAX_OUTPUT_TOKENS}
-      - CHANGES_GRAPH=${CHANGES_GRAPH}
+      FUSEKI_BASE_URL: ${FUSEKI_BASE_URL} 
+      FUSEKI_DATASET: ${FUSEKI_DATASET} 
+      FUSEKI_USER: ${FUSEKI_USER}
+      FUSEKI_PASSWORD: ${FUSEKI_PASSWORD}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      LLM_MODEL: ${LLM_MODEL}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE}
+      LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS}
+      CHANGES_GRAPH: ${CHANGES_GRAPH}
     depends_on:
       - fuseki
     restart: unless-stopped
 
   web:
     build:
-      context: . # <- jetzt Repo-Root
+      context: .
       dockerfile: infra/web.Dockerfile
     container_name: nl2sparql-web
     ports:
