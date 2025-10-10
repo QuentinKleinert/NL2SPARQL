@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="650" viewBox="0 0 1200 650">
+  <style>
+    .title { font: bold 24px "DejaVu Sans", Arial, sans-serif; fill: #1a1a1a; }
+    .note { font: italic 16px "DejaVu Sans", Arial, sans-serif; fill: #333333; }
+    .box-title { font: bold 18px "DejaVu Sans", Arial, sans-serif; fill: #1a1a1a; }
+    .box-text { font: 15px "DejaVu Sans", Arial, sans-serif; fill: #1a1a1a; }
+    .arrow { fill: none; stroke: #444444; stroke-width: 2.4; stroke-linecap: round; }
+    .arrow-head { fill: #444444; }
+  </style>
+  <rect width="100%" height="100%" fill="#ffffff" rx="20"/>
+  <text x="120" y="70" class="title">Verarbeitungspipeline NL→SPARQL</text>
+  <text x="120" y="105" class="note">Überblick über Generate → Preview → Execute → Undo</text>
+  <circle cx="180" cy="170" r="55" fill="#dfe9ff" stroke="#3355aa" stroke-width="2"/>
+  <text x="180" y="160" text-anchor="middle" class="box-title">User</text>
+  <text x="180" y="185" text-anchor="middle" class="box-text">Anfrage</text>
+  <defs>
+    <filter id="shadow" x="-0.05" y="-0.05" width="1.1" height="1.1">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3" result="blur"/>
+      <feOffset in="blur" dx="2" dy="2" result="offset"/>
+      <feMerge>
+        <feMergeNode in="offset"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <rect x="300" y="120" width="230" height="160" rx="18" fill="#e8f1fd" stroke="#5a7db8" stroke-width="2"/>
+    <text x="415.0" y="150" text-anchor="middle" class="box-title">Intent & Prompting</text>
+    <text x="320" y="180" class="box-text">• Text anonymisieren</text>
+    <text x="320" y="208" class="box-text">• Klassen/Properties aus Fuseki holen</text>
+    <text x="320" y="236" class="box-text">• Guardrail-Systemprompt mit Prefix-Set</text>
+    <text x="320" y="264" class="box-text">• Few-shot-Beispiele ergänzen</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="560" y="120" width="230" height="160" rx="18" fill="#f2e9fb" stroke="#8d6fb8" stroke-width="2"/>
+    <text x="675.0" y="150" text-anchor="middle" class="box-title">LLM-Generierung</text>
+    <text x="580" y="180" class="box-text">• OpenAI Responses API liefert Entwurf</text>
+    <text x="580" y="208" class="box-text">• Nur "sparql"-Codeblock erlaubt</text>
+    <text x="580" y="236" class="box-text">• Disallowed-Befehle werden blockiert</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="820" y="120" width="230" height="160" rx="18" fill="#e9f9ef" stroke="#5aa077" stroke-width="2"/>
+    <text x="935.0" y="150" text-anchor="middle" class="box-title">Schema-Prüfung</text>
+    <text x="840" y="180" class="box-text">• validate_sparql extrahiert URIs</text>
+    <text x="840" y="208" class="box-text">• Vergleich mit erlaubten Klassen/Properties</text>
+    <text x="840" y="236" class="box-text">• Warnungen & Fehler für Preview/Execute</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="1080" y="120" width="230" height="160" rx="18" fill="#fff2e5" stroke="#d99555" stroke-width="2"/>
+    <text x="1195.0" y="150" text-anchor="middle" class="box-title">Preview</text>
+    <text x="1100" y="180" class="box-text">• Änderungen auf <changes_graph> erzwingen</text>
+    <text x="1100" y="208" class="box-text">• Erklärung & Validierung bündeln</text>
+    <text x="1100" y="236" class="box-text">• Bestätigungs-Token speichern</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="560" y="360" width="230" height="160" rx="18" fill="#ffe8ef" stroke="#cc5f8a" stroke-width="2"/>
+    <text x="675.0" y="390" text-anchor="middle" class="box-title">Execute</text>
+    <text x="580" y="420" class="box-text">• Platzhalter-Rehydrierung</text>
+    <text x="580" y="448" class="box-text">• SPARQL-Update ausführen & loggen</text>
+    <text x="580" y="476" class="box-text">• Undo-Query vorbereiten</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="820" y="360" width="230" height="160" rx="18" fill="#e9f0f5" stroke="#6f8fa6" stroke-width="2"/>
+    <text x="935.0" y="390" text-anchor="middle" class="box-title">Undo</text>
+    <text x="840" y="420" class="box-text">• INSERT/DELETE spiegeln</text>
+    <text x="840" y="448" class="box-text">• Änderungen protokollieren</text>
+    <text x="840" y="476" class="box-text">• Optionaler Undo-Endpunkt</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="300" y="360" width="230" height="160" rx="18" fill="#edf7ff" stroke="#5a7db8" stroke-width="2"/>
+    <text x="415.0" y="390" text-anchor="middle" class="box-title">Fuseki Ontologie</text>
+    <text x="320" y="420" class="box-text">• SELECT-Abfragen sammeln Klassen</text>
+    <text x="320" y="448" class="box-text">• Properties für Prompt & Validierung</text>
+    <text x="320" y="476" class="box-text">• Cache aktualisierbar</text>
+  </g>
+  <path d="M 235 170 L 300 170" class="arrow"/>
+  <polygon points="300,170 288,162 288,178" class="arrow-head"/>
+  <path d="M 530 170 L 560 170" class="arrow"/>
+  <polygon points="560,170 548,162 548,178" class="arrow-head"/>
+  <path d="M 790 170 L 820 170" class="arrow"/>
+  <polygon points="820,170 808,162 808,178" class="arrow-head"/>
+  <path d="M 1050 170 L 1080 170" class="arrow"/>
+  <polygon points="1080,170 1068,162 1068,178" class="arrow-head"/>
+  <path d="M 1195 280 C 1195 320 780 320 675 360" class="arrow"/>
+  <polygon points="675,360 687,352 688,368" class="arrow-head"/>
+  <path d="M 790 440 L 820 440" class="arrow"/>
+  <polygon points="820,440 808,432 808,448" class="arrow-head"/>
+  <path d="M 415 360 C 415 320 415 220 415 220" class="arrow"/>
+  <polygon points="415,220 407,232 423,232" class="arrow-head"/>
+  <path d="M 415 360 C 415 320 675 320 675 360" class="arrow"/>
+  <polygon points="675,360 663,352 663,368" class="arrow-head"/>
+  <text x="415" y="335" text-anchor="middle" class="note">Fuseki liefert Ontologie-Kontext</text>
+</svg>
